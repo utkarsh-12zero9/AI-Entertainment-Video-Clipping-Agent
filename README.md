@@ -442,6 +442,91 @@ projects/podcast_001/
     └── clip_qa_report.json
 ```
 
+---
+
+## Current Status: Stage 7 — Vertical Social Media Editing
+
+### What is Implemented in Stage 7:
+- **Intelligent 9:16 Smart Reframing (`backend/video/smart_cropper.py`)**:
+  - Automatically converts horizontal clips to mobile-first **1080 × 1920 (9:16)** vertical format without distortion or blind center cuts.
+  - **Speaker & Face-Aware Cropping**: Utilizes local OpenCV Haar face cascade analysis to compute the median horizontal focus anchor ($X_{center}$) across sampled frames.
+  - **Balanced Fallback**: When no faces are present, applies clean, mathematical center-cropping ($X = \frac{W_{scaled} - 1080}{2}$).
+  - Guaranteed zero black letterboxing and zero pixel stretching.
+- **Subtle Visual Enhancements & EBU R128 Audio Normalization (`backend/video/clip_editor.py`)**:
+  - **Visual Enhancement**: Applies mild unsharp detail filtering (`unsharp=5:5:0.5:5:5:0.0`) for crisp mobile display.
+  - **Audio Normalization**: Applies EBU R128 standard loudness normalization (`loudnorm=I=-14:LRA=11:TP=-1.5`) tailored for platforms like TikTok, Instagram Reels, and YouTube Shorts.
+- **Categorized Folder Organization**:
+  - Outputs rendered vertical videos directly into categorized folders: `edited_clips/<category>/<clip_id>.mp4`.
+  - Serializes full edit telemetry to `analysis/edit_report.json`.
+- **CLI Commands**:
+  - `edit-clips`: Reframes raw clips into vertical social-media-ready videos.
+  - `process-video`: Executes Stages 1 through 7 seamlessly in an end-to-end pipeline.
+
+---
+
+## Stage 7 CLI Usage Examples
+
+### 1. Reframe Raw Clips to Vertical 9:16
+```bash
+python main.py edit-clips \
+  --project-dir ./projects/podcast_001 \
+  --selected ./projects/podcast_001/selected/selected_clips.json \
+  --strategy smart_face \
+  --loudness -14.0
+```
+
+### 2. Run Full Pipeline (Stages 1 through 7)
+```bash
+python main.py process-video \
+  --input ./podcast_episode.mp4 \
+  --output ./projects/podcast_001 \
+  --model base \
+  --max-clips 8
+```
+
+Project workspace structure after Stage 7:
+```text
+projects/podcast_001/
+├── video_metadata.json
+├── pipeline.log
+├── input/
+│   └── podcast_episode.mp4
+├── audio/
+│   └── audio.wav
+├── transcript/
+│   ├── transcript.json
+│   └── transcript.txt
+├── frames/
+│   ├── index.json
+│   └── frame_00000*.jpg
+├── analysis/
+│   ├── scenes.json
+│   ├── visual_analysis.json
+│   └── edit_report.json
+├── candidates/
+│   ├── candidates.json
+│   └── candidates.md
+├── selected/
+│   └── selected_clips.json
+├── raw_clips/
+│   ├── funny/
+│   │   └── funny_001.mp4
+│   ├── storytelling/
+│   │   └── storytelling_002.mp4
+│   └── surprising/
+│       └── surprising_003.mp4
+├── edited_clips/
+│   ├── funny/
+│   │   └── funny_001.mp4
+│   ├── storytelling/
+│   │   └── storytelling_002.mp4
+│   └── surprising/
+│       └── surprising_003.mp4
+└── qa/
+    └── clip_qa_report.json
+```
+
+
 
 
 

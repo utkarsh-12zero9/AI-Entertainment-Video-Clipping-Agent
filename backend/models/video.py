@@ -50,6 +50,11 @@ class ProjectWorkspace(BaseModel):
     def raw_clips(self) -> Path:
         return self.raw_clips_dir
 
+    @property
+    def edited_clips(self) -> Path:
+        return self.edited_clips_dir
+
+
 
     @property
     def metadata_file(self) -> Path:

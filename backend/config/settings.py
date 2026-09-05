@@ -49,6 +49,14 @@ class PipelineSettings(BaseModel):
     clip_audio_bitrate: str = Field(default="192k", description="Audio bitrate for clip extraction")
     qa_duration_tolerance_sec: float = Field(default=0.75, description="Allowed duration deviation in seconds")
     qa_max_allowed_silence_sec: float = Field(default=4.0, description="Max acceptable continuous silence")
+
+    # Stage 7: Vertical Social Media Editing
+    target_vertical_width: int = Field(default=1080, description="Target vertical video width in pixels")
+    target_vertical_height: int = Field(default=1920, description="Target vertical video height in pixels")
+    target_aspect_ratio: str = Field(default="9:16", description="Target aspect ratio for mobile platforms")
+    reframing_strategy: str = Field(default="smart_face", description="Smart reframing strategy: 'smart_face' or 'center'")
+    audio_loudnorm_target: float = Field(default=-14.0, description="EBU R128 integrated loudness target (LUFS)")
+    enable_visual_enhancements: bool = Field(default=True, description="Apply subtle sharpening and contrast optimization")
     
     # Tool binaries
     ffmpeg_bin: str = Field(default="ffmpeg", description="Path or command for ffmpeg")

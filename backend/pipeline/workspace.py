@@ -11,6 +11,7 @@ from backend.utils.logger import logger
 if TYPE_CHECKING:
     from backend.models.candidate import CandidateReport
     from backend.models.clip import SelectedClipsReport
+    from backend.models.editing import ProjectEditReport
     from backend.models.qa import ProjectQAReport
     from backend.models.transcript import TranscriptResult
     from backend.models.vision import SceneBoundary, VisualAnalysisResult
@@ -161,4 +162,17 @@ class WorkspaceManager:
             f.write(report.model_dump_json(indent=4))
         logger.info(f"Saved QA report to: {qa_file}")
         return qa_file
+
+    @staticmethod
+    def save_edit_report(
+        report: "ProjectEditReport",
+        workspace: ProjectWorkspace,
+    ) -> Path:
+        """Saves analysis/edit_report.json inside workspace."""
+        edit_file = workspace.analysis_dir / "edit_report.json"
+        with open(edit_file, "w", encoding="utf-8") as f:
+            f.write(report.model_dump_json(indent=4))
+        logger.info(f"Saved edit report to: {edit_file}")
+        return edit_file
+
 

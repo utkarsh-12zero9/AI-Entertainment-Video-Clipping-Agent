@@ -22,6 +22,7 @@ from backend.scoring.ranker import ClipRanker
 from backend.transcription.whisper_local import LocalWhisperTranscriber
 from backend.utils.errors import VideoPipelineError
 from backend.utils.logger import logger, setup_logger
+from backend.video.clip_editor import ClipEditor
 from backend.video.clip_extractor import RawClipExtractor
 from backend.video.inspector import VideoInspector
 
@@ -372,8 +373,49 @@ def handle_qa_clips(args: argparse.Namespace) -> int:
         return 2
 
 
+def handle_edit_clips(args: argparse.Namespace) -> int:
+    """Transforms raw clips into 9:16 vertical social media clips."""
+    selected_file = Path(args.selected).resolve()
+    project_dir = Path(args.project_dir).resolve()
+
+    settings = PipelineSettings(
+        reframing_strategy=args.strategy,
+        enable_visual_enhancements=not args.no_enhancements,
+        audio_loudnorm_target=args.loudness
+    )
+    editor = ClipEditor(settings=settings)
+
+    try:
+        selected_data = json.loads(selected_file.read_text(encoding="utf-8"))
+        selected_report = SelectedClipsReport.model_validate(selected_data)
+        workspace = WorkspaceManager.create_workspace(project_dir)
+
+        edit_report = editor.edit_all_clips(selected_report, workspace, strategy=args.strategy)
+        report_file = WorkspaceManager.save_edit_report(edit_report, workspace)
+
+        print("\n" + "=" * 65)
+        print(f"VERTICAL SOCIAL MEDIA EDITING COMPLETE ({len(edit_report.clips)} CLIPS)")
+        print("=" * 65)
+        print(f"Target Format:       {edit_report.target_resolution} ({edit_report.target_aspect_ratio})")
+        print(f"Reframing Strategy:  {settings.reframing_strategy}")
+        print(f"Edit Report File:    {report_file}")
+        print("-" * 65)
+        for c in edit_report.clips:
+            print(f"[{c.clip_id}] {c.resolution} ({c.aspect_ratio}) | Crop: X={c.crop.x} ({c.crop.strategy_used})")
+            print(f"  Saved to: {Path(c.edited_clip_path).relative_to(workspace.root)} ({c.file_size_bytes / 1024 / 1024:.2f} MB)")
+        print("=" * 65 + "\n")
+
+        return 0
+    except VideoPipelineError as e:
+        logger.error(f"Clip editing failed: {e}")
+        return 1
+    except Exception as e:
+        logger.exception(f"Unexpected error editing clips: {e}")
+        return 2
+
+
 def handle_process_video(args: argparse.Namespace) -> int:
-    """Executes full multi-stage pipeline (Stage 1 to Stage 6)."""
+    """Executes full multi-stage pipeline (Stage 1 to Stage 7)."""
     video_path = Path(args.input).resolve()
     output_path = Path(args.output).resolve()
 
@@ -467,10 +509,15 @@ def handle_process_video(args: argparse.Namespace) -> int:
         qa_report = qa_validator.validate_all_clips(selected_report, workspace)
         qa_file = WorkspaceManager.save_qa_report(qa_report, workspace)
 
-        logger.info("Stage 1 through 6 pipeline completed successfully.")
+        # --- Stage 7: Vertical Social Media Editing ---
+        clip_editor = ClipEditor(settings=settings)
+        edit_report = clip_editor.edit_all_clips(selected_report, workspace, strategy=settings.reframing_strategy)
+        edit_report_file = WorkspaceManager.save_edit_report(edit_report, workspace)
+
+        logger.info("Stage 1 through 7 pipeline completed successfully.")
 
         print("\n" + "=" * 65)
-        print("PIPELINE EXECUTION SUCCESSFUL (STAGES 1, 2, 3, 4, 5 & 6)")
+        print("PIPELINE EXECUTION SUCCESSFUL (STAGES 1, 2, 3, 4, 5, 6 & 7)")
         print("=" * 65)
         print(f"Project Workspace:    {workspace.root}")
         print(f"Metadata File:        {meta_file}")
@@ -484,8 +531,11 @@ def handle_process_video(args: argparse.Namespace) -> int:
         print(f"Raw Clips Extracted:  {len(extracted_clips)} (in {workspace.raw_clips})")
         print(f"QA Validation Report: {qa_file}")
         print(f"QA Overall Status:    {'PASSED' if qa_report.all_passed else 'WARNING / ISSUES DETECTED'}")
+        print(f"Edited 9:16 Clips:    {len(edit_report.clips)} (in {workspace.edited_clips})")
+        print(f"Edit Report File:     {edit_report_file}")
         print(f"Duration:             {metadata.duration}s")
-        print(f"Resolution:           {metadata.width}x{metadata.height} ({metadata.aspect_ratio})")
+        print(f"Original Resolution:  {metadata.width}x{metadata.height} ({metadata.aspect_ratio})")
+        print(f"Vertical Target:      {settings.target_vertical_width}x{settings.target_vertical_height} (9:16)")
         print(f"Candidate Moments:    {candidate_report.total_candidates}")
         print(f"Final Selected Clips: {selected_report.total_selected}")
         print("=" * 65 + "\n")
@@ -599,10 +649,21 @@ def build_parser() -> argparse.ArgumentParser:
     qa_parser.add_argument("--duration-tolerance", type=float, default=0.75, help="Maximum allowable duration discrepancy in seconds")
     qa_parser.add_argument("--max-silence", type=float, default=4.0, help="Maximum allowable continuous silence in seconds")
 
+    # edit-clips
+    edit_parser = subparsers.add_parser(
+        "edit-clips",
+        help="Transform raw clips into 9:16 vertical social media clips (1080x1920) with smart reframing"
+    )
+    edit_parser.add_argument("--project-dir", "-p", required=True, help="Path to project directory containing raw_clips/")
+    edit_parser.add_argument("--selected", "-s", required=True, help="Path to selected_clips.json")
+    edit_parser.add_argument("--strategy", default="smart_face", choices=["smart_face", "center"], help="Reframing strategy (default: smart_face)")
+    edit_parser.add_argument("--loudness", type=float, default=-14.0, help="EBU R128 loudness target in LUFS (default: -14.0)")
+    edit_parser.add_argument("--no-enhancements", action="store_true", help="Disable visual sharpening and contrast optimization")
+
     # process-video
     process_parser = subparsers.add_parser(
         "process-video",
-        help="Execute full pipeline (Stages 1 to 6: Ingestion, Audio/Transcript, Visuals, Moments, Ranking, Extraction & QA)"
+        help="Execute full pipeline (Stages 1 to 7: Ingestion, Audio/Transcript, Visuals, Moments, Ranking, Extraction, QA & Editing)"
     )
     process_parser.add_argument("--input", "-i", required=True, help="Path to source video file")
     process_parser.add_argument("--output", "-o", required=True, help="Target project directory path")
@@ -643,6 +704,8 @@ def main() -> None:
         exit_code = handle_extract_clips(args)
     elif args.command == "qa-clips":
         exit_code = handle_qa_clips(args)
+    elif args.command == "edit-clips":
+        exit_code = handle_edit_clips(args)
     elif args.command == "process-video":
         exit_code = handle_process_video(args)
     else:
