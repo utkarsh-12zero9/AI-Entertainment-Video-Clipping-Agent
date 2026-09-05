@@ -10,7 +10,10 @@ from backend.analyzers.frame_sampler import FrameSampler
 from backend.analyzers.scene_detector import SceneDetector
 from backend.analyzers.visual_analyzer import VisualAnalyzer
 from backend.audio.extractor import AudioExtractor
+from backend.clip_detection.detector import EntertainmentMomentDetector
 from backend.config.settings import PipelineSettings
+from backend.models.transcript import TranscriptResult
+from backend.models.vision import VisualAnalysisResult
 from backend.pipeline.workspace import WorkspaceManager
 from backend.transcription.whisper_local import LocalWhisperTranscriber
 from backend.utils.errors import VideoPipelineError
@@ -180,8 +183,62 @@ def handle_sample_frames(args: argparse.Namespace) -> int:
         return 2
 
 
+def handle_detect_moments(args: argparse.Namespace) -> int:
+    """Detects entertainment candidate moments for a given video project or files."""
+    settings = PipelineSettings(
+        min_candidate_duration=args.min_duration,
+        max_candidate_duration=args.max_duration,
+        min_candidate_score=args.min_score
+    )
+    detector = EntertainmentMomentDetector(settings=settings)
+
+    try:
+        # Load transcript
+        transcript_file = Path(args.transcript).resolve()
+        transcript_data = json.loads(transcript_file.read_text(encoding="utf-8"))
+        transcript = TranscriptResult.model_validate(transcript_data)
+
+        # Optional audio
+        audio_file = Path(args.audio).resolve() if args.audio else None
+
+        # Optional visual analysis
+        visual_file = Path(args.visual).resolve() if args.visual else None
+        visual_analysis = None
+        if visual_file and visual_file.exists():
+            visual_data = json.loads(visual_file.read_text(encoding="utf-8"))
+            visual_analysis = VisualAnalysisResult.model_validate(visual_data)
+
+        report = detector.detect_candidates(
+            transcript=transcript,
+            audio_path=audio_file,
+            visual_analysis=visual_analysis,
+            video_duration=transcript.duration
+        )
+
+        md_content = EntertainmentMomentDetector.generate_markdown_summary(report)
+
+        if args.output:
+            out_dir = Path(args.output).resolve()
+            out_dir.mkdir(parents=True, exist_ok=True)
+            json_path = out_dir / "candidates.json"
+            md_path = out_dir / "candidates.md"
+            json_path.write_text(report.model_dump_json(indent=4), encoding="utf-8")
+            md_path.write_text(md_content, encoding="utf-8")
+            print(f"Candidates saved to: {json_path} and {md_path}")
+        else:
+            print(md_content)
+
+        return 0
+    except VideoPipelineError as e:
+        logger.error(f"Moment detection failed: {e}")
+        return 1
+    except Exception as e:
+        logger.exception(f"Unexpected error detecting moments: {e}")
+        return 2
+
+
 def handle_process_video(args: argparse.Namespace) -> int:
-    """Executes full multi-stage pipeline (Stage 1 Ingestion + Stage 2 Audio/Transcript + Stage 3 Visuals)."""
+    """Executes full multi-stage pipeline (Stage 1 Ingestion + Stage 2 Audio/Transcript + Stage 3 Visuals + Stage 4 Moments)."""
     video_path = Path(args.input).resolve()
     output_path = Path(args.output).resolve()
 
@@ -191,7 +248,10 @@ def handle_process_video(args: argparse.Namespace) -> int:
         whisper_model_name=args.model,
         whisper_device=args.device,
         frame_sampling_strategy=args.strategy,
-        frame_sample_interval=args.interval
+        frame_sample_interval=args.interval,
+        min_candidate_duration=args.min_candidate_duration,
+        max_candidate_duration=args.max_candidate_duration,
+        min_candidate_score=args.min_candidate_score
     )
 
     # Initialize workspace
@@ -241,11 +301,22 @@ def handle_process_video(args: argparse.Namespace) -> int:
         )
         visual_analysis_file = WorkspaceManager.save_visual_analysis(visual_report, workspace)
 
-        logger.info("Stage 1, 2, and 3 pipeline completed successfully.")
+        # --- Stage 4: Multimodal Entertainment Moment Detection ---
+        moment_detector = EntertainmentMomentDetector(settings=settings)
+        candidate_report = moment_detector.detect_candidates(
+            transcript=transcript,
+            audio_path=audio_file,
+            visual_analysis=visual_report,
+            video_duration=metadata.duration
+        )
+        md_summary = EntertainmentMomentDetector.generate_markdown_summary(candidate_report)
+        cand_json, cand_md = WorkspaceManager.save_candidates(candidate_report, md_summary, workspace)
 
-        print("\n" + "=" * 55)
-        print("PIPELINE EXECUTION SUCCESSFUL (STAGE 1, 2 & 3)")
-        print("=" * 55)
+        logger.info("Stage 1, 2, 3, and 4 pipeline completed successfully.")
+
+        print("\n" + "=" * 60)
+        print("PIPELINE EXECUTION SUCCESSFUL (STAGES 1, 2, 3 & 4)")
+        print("=" * 60)
         print(f"Project Workspace:    {workspace.root}")
         print(f"Metadata File:        {meta_file}")
         print(f"Audio File:           {audio_file}")
@@ -253,11 +324,12 @@ def handle_process_video(args: argparse.Namespace) -> int:
         print(f"Scenes JSON:          {scenes_file}")
         print(f"Frames Sampled:       {frame_index.total_frames} (in {workspace.frames_dir})")
         print(f"Visual Analysis JSON: {visual_analysis_file}")
+        print(f"Candidate JSON:       {cand_json}")
+        print(f"Candidate MD:         {cand_md}")
         print(f"Duration:             {metadata.duration}s")
         print(f"Resolution:           {metadata.width}x{metadata.height} ({metadata.aspect_ratio})")
-        print(f"Segments Spoken:      {len(transcript.segments)}")
-        print(f"Scenes Detected:      {len(scenes)}")
-        print("=" * 55 + "\n")
+        print(f"Candidate Moments:    {candidate_report.total_candidates}")
+        print("=" * 60 + "\n")
         return 0
     except VideoPipelineError as e:
         logger.error(f"Pipeline failed: {e}")
@@ -322,10 +394,23 @@ def build_parser() -> argparse.ArgumentParser:
     sample_parser.add_argument("--strategy", "-s", default="adaptive", choices=["fixed_interval", "scene_change", "adaptive"], help="Sampling strategy")
     sample_parser.add_argument("--interval", type=float, default=2.0, help="Interval in seconds for sampling")
 
+    # detect-moments
+    moments_parser = subparsers.add_parser(
+        "detect-moments",
+        help="Detect entertainment candidate moments from transcript, audio, and visual artifacts"
+    )
+    moments_parser.add_argument("--transcript", required=True, help="Path to transcript.json")
+    moments_parser.add_argument("--audio", default=None, help="Path to audio.wav")
+    moments_parser.add_argument("--visual", default=None, help="Path to visual_analysis.json")
+    moments_parser.add_argument("--output", "-o", default=None, help="Directory to save candidates.json and candidates.md")
+    moments_parser.add_argument("--min-duration", type=float, default=15.0, help="Minimum candidate duration in seconds")
+    moments_parser.add_argument("--max-duration", type=float, default=45.0, help="Maximum candidate duration in seconds")
+    moments_parser.add_argument("--min-score", type=float, default=0.50, help="Minimum social potential score")
+
     # process-video
     process_parser = subparsers.add_parser(
         "process-video",
-        help="Execute pipeline (Ingestion + Audio/Transcript + Visuals)"
+        help="Execute pipeline (Ingestion + Audio/Transcript + Visuals + Moments)"
     )
     process_parser.add_argument("--input", "-i", required=True, help="Path to source video file")
     process_parser.add_argument("--output", "-o", required=True, help="Target project directory path")
@@ -335,6 +420,9 @@ def build_parser() -> argparse.ArgumentParser:
     process_parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"], help="Inference device")
     process_parser.add_argument("--strategy", "-s", default="adaptive", choices=["fixed_interval", "scene_change", "adaptive"], help="Frame sampling strategy")
     process_parser.add_argument("--interval", type=float, default=2.0, help="Frame sampling interval in seconds")
+    process_parser.add_argument("--min-candidate-duration", type=float, default=15.0, help="Minimum candidate duration in seconds")
+    process_parser.add_argument("--max-candidate-duration", type=float, default=45.0, help="Maximum candidate duration in seconds")
+    process_parser.add_argument("--min-candidate-score", type=float, default=0.50, help="Minimum candidate social potential score")
 
     return parser
 
@@ -353,6 +441,8 @@ def main() -> None:
         exit_code = handle_detect_scenes(args)
     elif args.command == "sample-frames":
         exit_code = handle_sample_frames(args)
+    elif args.command == "detect-moments":
+        exit_code = handle_detect_moments(args)
     elif args.command == "process-video":
         exit_code = handle_process_video(args)
     else:

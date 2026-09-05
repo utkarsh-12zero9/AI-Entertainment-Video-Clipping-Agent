@@ -9,6 +9,7 @@ from backend.models.video import ProjectWorkspace, VideoMetadata
 from backend.utils.logger import logger
 
 if TYPE_CHECKING:
+    from backend.models.candidate import CandidateReport
     from backend.models.transcript import TranscriptResult
     from backend.models.vision import SceneBoundary, VisualAnalysisResult
 
@@ -115,3 +116,22 @@ class WorkspaceManager:
             f.write(analysis.model_dump_json(indent=4))
         logger.info(f"Saved visual analysis artifact to: {analysis_file}")
         return analysis_file
+
+    @staticmethod
+    def save_candidates(
+        report: "CandidateReport",
+        markdown_content: str,
+        workspace: ProjectWorkspace
+    ) -> Tuple[Path, Path]:
+        """Saves candidates/candidates.json and candidates/candidates.md inside workspace."""
+        json_path = workspace.candidates_dir / "candidates.json"
+        md_path = workspace.candidates_dir / "candidates.md"
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            f.write(report.model_dump_json(indent=4))
+
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(markdown_content)
+
+        logger.info(f"Saved candidate moments to: {json_path} and {md_path}")
+        return json_path, md_path

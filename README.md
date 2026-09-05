@@ -198,4 +198,82 @@ projects/my_project_001/
 ...
 ```
 
+---
+
+## Current Status: Stage 4 — Multimodal Entertainment Moment Detection
+
+### What is Implemented in Stage 4:
+- **Core Intelligence Layer (100% Free & Local)**:
+  - Fuses linguistic speech semantics, audio energy envelopes, and visual analysis without requiring any paid LLM/vision API keys.
+- **Contextual Speech Windowing (`backend/clip_detection/contextual_window.py`)**:
+  - Groups timed speech segments into coherent narrative windows targeting 15–45 seconds (optimal for 20–30s shorts).
+  - Identifies distinct **Hook** (opening phrase) and **Payoff** (closing punchline/statement).
+- **Audio Energy Profiling (`backend/audio/analyzer.py`)**:
+  - Computes RMS volume and energy profiles over time, detecting laughter, excitement, and pauses.
+- **Multimodal Scoring & Tagging (`backend/clip_detection/multimodal_scorer.py`)**:
+  - Scores candidates on 7 dimensions:
+    - `hook_strength`: Opening engagement factor
+    - `humor`: Comedic timing, jokes, and punchlines
+    - `surprise`: Unexpected statements and plot twists
+    - `emotion`: Sentiments and intensity
+    - `visual_interest`: Face presence, motion, and scene transitions
+    - `context_completeness`: Standalone understandability
+    - `social_potential`: Composite virality rating
+  - Multi-tag categorization (`funny`, `reaction`, `insightful`, `surprising`, `storytelling`, `punchline`, `high_energy`, etc.).
+- **Deduplication Engine (`backend/clip_detection/detector.py`)**:
+  - Merges overlapping candidates using 1D temporal Intersection-over-Union (IoU) to guarantee unique moments.
+- **Output Artifacts**:
+  - `candidates/candidates.json`: Structured candidate data and scores.
+  - `candidates/candidates.md`: Clean Markdown report for developers.
+- **CLI Subcommand**:
+  - `detect-moments`: Discovers and ranks candidate moments from existing project artifacts.
+  - `process-video`: Now automatically executes Stages 1, 2, 3, and 4 in sequence.
+
+---
+
+## Stage 4 CLI Usage Examples
+
+### 1. Detect Moments from Existing Project
+```bash
+python main.py detect-moments \
+  --transcript ./projects/my_project_001/transcript/transcript.json \
+  --audio ./projects/my_project_001/audio/audio.wav \
+  --visual ./projects/my_project_001/analysis/visual_analysis.json \
+  --output ./projects/my_project_001/candidates
+```
+
+### 2. Run Full Pipeline (Stages 1, 2, 3 & 4)
+```bash
+python main.py process-video \
+  --input ./podcast_episode.mp4 \
+  --output ./projects/podcast_001 \
+  --model base \
+  --strategy adaptive
+```
+
+Project workspace structure after Stage 4:
+```text
+projects/podcast_001/
+├── video_metadata.json
+├── pipeline.log
+├── input/
+│   └── podcast_episode.mp4
+├── audio/
+│   └── audio.wav
+├── transcript/
+│   ├── transcript.json
+│   └── transcript.txt
+├── frames/
+│   ├── index.json
+│   └── frame_00000*.jpg
+├── analysis/
+│   ├── scenes.json
+│   └── visual_analysis.json
+├── candidates/
+│   ├── candidates.json
+│   └── candidates.md
+...
+```
+
+
 

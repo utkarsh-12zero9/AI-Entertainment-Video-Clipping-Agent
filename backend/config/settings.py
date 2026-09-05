@@ -30,6 +30,12 @@ class PipelineSettings(BaseModel):
     min_sample_interval: float = Field(default=1.0, description="Minimum interval for adaptive sampling")
     max_sample_interval: float = Field(default=5.0, description="Maximum interval for adaptive sampling")
     scene_change_threshold: float = Field(default=0.35, description="FFmpeg scene detection threshold (0.0 to 1.0)")
+
+    # Stage 4: Multimodal Entertainment Moment Detection
+    min_candidate_duration: float = Field(default=15.0, description="Minimum duration for candidate moment in seconds")
+    max_candidate_duration: float = Field(default=45.0, description="Maximum duration for candidate moment in seconds")
+    min_candidate_score: float = Field(default=0.50, description="Minimum overall social potential score threshold")
+    max_candidate_overlap_iou: float = Field(default=0.50, description="Maximum IoU threshold before merging candidates")
     
     # Tool binaries
     ffmpeg_bin: str = Field(default="ffmpeg", description="Path or command for ffmpeg")
