@@ -666,16 +666,42 @@ def handle_orchestrate_resume(args: argparse.Namespace) -> int:
 
 
 def handle_orchestrate_review(args: argparse.Namespace) -> int:
-    """Reviews and optionally filters candidate moments before rendering."""
+    """Reviews and optionally filters or modifies candidate moments before rendering."""
     project_dir = Path(args.project_dir).resolve()
     orchestrator = PipelineOrchestrator()
 
     try:
-        approved_list = [x.strip() for x in args.approve.split(",")] if args.approve else None
-        report = orchestrator.review_candidates(project_dir, approved_ids=approved_list)
+        approved_list = [x.strip() for x in args.approve.split(",")] if getattr(args, "approve", None) else None
+        rejected_list = [x.strip() for x in args.reject.split(",")] if getattr(args, "reject", None) else None
+        
+        # Parse time adjustments e.g. "clip_001:12.5-32.0"
+        time_adjustments = {}
+        if getattr(args, "modify_time", None):
+            for entry in args.modify_time.split(","):
+                parts = entry.strip().split(":")
+                if len(parts) == 2 and "-" in parts[1]:
+                    cid = parts[0]
+                    t_start, t_end = parts[1].split("-")
+                    time_adjustments[cid] = (float(t_start), float(t_end))
+
+        # Parse category overrides e.g. "clip_001:Humor"
+        cat_overrides = {}
+        if getattr(args, "modify_category", None):
+            for entry in args.modify_category.split(","):
+                parts = entry.strip().split(":")
+                if len(parts) == 2:
+                    cat_overrides[parts[0]] = parts[1]
+
+        report = orchestrator.review_candidates(
+            project_dir,
+            approved_ids=approved_list,
+            rejected_ids=rejected_list,
+            time_adjustments=time_adjustments if time_adjustments else None,
+            category_overrides=cat_overrides if cat_overrides else None,
+        )
 
         print("\n" + "=" * 70)
-        print(f"CANDIDATE MOMENT REVIEW ({report.total_selected} SELECTED)")
+        print(f"CANDIDATE MOMENT REVIEW ({report.total_selected} ACTIVE)")
         print("=" * 70)
         for i, c in enumerate(report.clips):
             print(f"[{i+1}] {c.clip_id} ({c.category}) | {c.start_time:.1f}s -> {c.end_time:.1f}s | Score: {c.score:.2f}")
@@ -706,6 +732,11 @@ def handle_orchestrate_status(args: argparse.Namespace) -> int:
     print(f"Current Stage:  {job.current_stage or 'None'}")
     print(f"Created At:     {job.created_at}")
     print(f"Updated At:     {job.updated_at}")
+    if job.metrics:
+        print("-" * 65)
+        print("PERFORMANCE TELEMETRY & BENCHMARKS:")
+        for k, v in job.metrics.items():
+            print(f"  {k:<35}: {v}")
     print("-" * 65)
     for name, rec in job.stages.items():
         dur_str = f"({rec.duration_seconds:.2f}s)" if rec.duration_seconds > 0 else ""
@@ -1068,10 +1099,13 @@ def build_parser() -> argparse.ArgumentParser:
     # agent-review
     agent_rev_parser = subparsers.add_parser(
         "agent-review",
-        help="Inspect or filter candidate moments for an orchestration job"
+        help="Inspect, filter, or fine-tune candidate moments for an orchestration job"
     )
     agent_rev_parser.add_argument("--project-dir", "-p", required=True, help="Path to project directory")
     agent_rev_parser.add_argument("--approve", help="Optional comma-separated list of clip IDs to keep (e.g. clip_001,clip_003)")
+    agent_rev_parser.add_argument("--reject", help="Optional comma-separated list of clip IDs to discard (e.g. clip_002)")
+    agent_rev_parser.add_argument("--modify-time", help="Modify boundaries format 'clip_id:start-end' (e.g. clip_001:14.0-34.0)")
+    agent_rev_parser.add_argument("--modify-category", help="Modify category format 'clip_id:NewCategory' (e.g. clip_001:Humor)")
 
     # agent-status
     agent_stat_parser = subparsers.add_parser(

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import time
-from typing import Callable, Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from backend.analyzers.frame_sampler import FrameSampler
 from backend.analyzers.scene_detector import SceneDetector
@@ -258,10 +258,24 @@ class PipelineOrchestrator:
                     lambda: self._step_export(workspace)
                 )
 
+            # Stage 12 Telemetry Summary
+            total_duration = sum(rec.duration_seconds for rec in job.stages.values())
+            completed_stages = sum(1 for rec in job.stages.values() if rec.status == StageStatus.COMPLETED)
+            slowest_stage = max(job.stages.items(), key=lambda x: x[1].duration_seconds, default=("none", None))
+            
+            job.metrics.update({
+                "total_pipeline_duration_seconds": round(total_duration, 2),
+                "completed_stages_count": completed_stages,
+                "slowest_stage": slowest_stage[0] if slowest_stage[1] else "none",
+                "slowest_stage_duration_seconds": round(slowest_stage[1].duration_seconds, 2) if slowest_stage[1] else 0.0,
+                "video_duration_seconds": metadata.duration if metadata else 0.0,
+                "realtime_processing_factor": round(metadata.duration / max(0.1, total_duration), 2) if metadata else 0.0,
+            })
+
             job.status = "completed"
             job.current_stage = None
             WorkspaceManager.save_job_state(job, workspace)
-            logger.info(f"Pipeline job [{job.job_id}] completed successfully.")
+            logger.info(f"Pipeline job [{job.job_id}] completed successfully in {total_duration:.2f}s.")
 
         except Exception as e:
             job.status = "failed"
@@ -303,6 +317,7 @@ class PipelineOrchestrator:
             duration = time.time() - t0
             job.update_stage_status(stage_name, StageStatus.FAILED, duration=duration, error=str(e))
             WorkspaceManager.save_job_state(job, workspace)
+            logger.error(f"Stage [{stage_name}] failed after {duration:.2f}s: {e}")
             raise
 
     # -------------------------------------------------------------------------
@@ -496,8 +511,11 @@ class PipelineOrchestrator:
         self,
         project_dir: Path,
         approved_ids: Optional[List[str]] = None,
+        rejected_ids: Optional[List[str]] = None,
+        time_adjustments: Optional[Dict[str, Tuple[float, float]]] = None,
+        category_overrides: Optional[Dict[str, str]] = None,
     ) -> SelectedClipsReport:
-        """Loads selected_clips.json, applies user approval filter, and saves updated report."""
+        """Loads selected_clips.json, applies human-in-the-loop review/edits, and saves updated report."""
         workspace = WorkspaceManager.create_workspace(project_dir)
         sel_file = workspace.selected_dir / "selected_clips.json"
         if not sel_file.exists():
@@ -506,14 +524,37 @@ class PipelineOrchestrator:
         data = json.loads(sel_file.read_text(encoding="utf-8"))
         report = SelectedClipsReport.model_validate(data)
 
-        if approved_ids is not None:
-            approved_set = set(approved_ids)
-            filtered_clips = [c for c in report.clips if c.clip_id in approved_set]
-            report = SelectedClipsReport(
-                total_selected=len(filtered_clips),
-                clips=filtered_clips,
-            )
-            WorkspaceManager.save_selected_clips(report, workspace)
-            logger.info(f"Updated selected clips after review: {len(filtered_clips)} approved.")
+        updated_clips = []
+        approved_set = set(approved_ids) if approved_ids is not None else None
+        rejected_set = set(rejected_ids) if rejected_ids is not None else set()
 
+        for c in report.clips:
+            # Rejection filter
+            if c.clip_id in rejected_set:
+                continue
+            # Approval filter
+            if approved_set is not None and c.clip_id not in approved_set:
+                continue
+
+            # Apply timestamp adjustments if specified
+            if time_adjustments and c.clip_id in time_adjustments:
+                new_start, new_end = time_adjustments[c.clip_id]
+                c.start_time = round(new_start, 2)
+                c.end_time = round(new_end, 2)
+                c.duration = round(new_end - new_start, 2)
+
+            # Apply category overrides if specified
+            if category_overrides and c.clip_id in category_overrides:
+                c.category = category_overrides[c.clip_id]
+                if c.category not in c.categories:
+                    c.categories.insert(0, c.category)
+
+            updated_clips.append(c)
+
+        report = SelectedClipsReport(
+            total_selected=len(updated_clips),
+            clips=updated_clips,
+        )
+        WorkspaceManager.save_selected_clips(report, workspace)
+        logger.info(f"Updated selected clips after review: {len(updated_clips)} active.")
         return report

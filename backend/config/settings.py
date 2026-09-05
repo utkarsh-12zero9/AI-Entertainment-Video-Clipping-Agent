@@ -86,6 +86,12 @@ class PipelineSettings(BaseModel):
     orchestrator_max_workers: int = Field(default=4, description="Maximum concurrent worker threads for clip processing")
     orchestrator_auto_approve: bool = Field(default=True, description="Automatically approve ranked candidates without pausing for review")
 
+    # Stage 12: Production Optimization
+    dedup_similarity_threshold: float = Field(default=0.65, description="Maximum allowable semantic transcript similarity before rejection")
+    category_max_clips_per_type: int = Field(default=3, description="Maximum number of clips allowed per category in final selection")
+    hook_first_3s_boost: float = Field(default=0.08, description="Score bonus for punchy, immediate 1-3s hook statements")
+    filler_words_penalty: float = Field(default=0.10, description="Score penalty for clips starting with filler words (e.g. um, uh, like)")
+
     # Tool binaries
     ffmpeg_bin: str = Field(default="ffmpeg", description="Path or command for ffmpeg")
     ffprobe_bin: str = Field(default="ffprobe", description="Path or command for ffprobe")

@@ -954,6 +954,112 @@ projects/podcast_001/
         └── <clip_id>.json
 ```
 
+---
+
+## Current Status: Stage 12 — Production Optimization (Final Stage)
+
+### What is Implemented in Stage 12:
+- **Semantic Text & Topic Deduplication (`backend/scoring/deduplicator.py`)**:
+  - `SemanticClipDeduplicator`: Employs normalized token Jaccard similarity and bi-gram phrase overlap to detect identical punchlines, repeated anecdotes, or overlapping jokes across candidates.
+  - Automatically suppresses redundant clips when semantic transcript similarity exceeds `dedup_similarity_threshold=0.65`.
+- **Category Quota & Diversity Balancing**:
+  - Prevents single-category dominance (e.g. 8 humor clips from one section) by enforcing `category_max_clips_per_type` (default: 3 clips per category).
+  - Guarantees a balanced mix across Humor, Insightful, Dramatic, and Storytelling moments.
+- **Hook-First-3s & Filler Penalization (`backend/scoring/ranker.py`)**:
+  - Boosts clips that open with high-energy hooks, questions, exclamations, or direct audience address (+0.08 score boost).
+  - Applies automated penalty (-0.10) for clips starting with hesitations and filler words (*"um", "uh", "like", "so yeah", "basically"*).
+- **Interactive Human-in-the-Loop Candidate Fine-Tuning (`review_candidates`)**:
+  - Operators can reject clips (`--reject clip_002`), adjust start/end timestamps (`--modify-time clip_001:12.5-32.0`), or reassign categories (`--modify-category clip_001:Humor`) before expensive final rendering.
+- **Pipeline Telemetry & Benchmarking**:
+  - Automatically records pipeline metrics into `job_state.json`: total runtime, slowest stage identification, per-stage durations, and real-time processing factor.
+  - Telemetry is exposed via `python main.py agent-status --project-dir <dir>`.
+
+---
+
+## Stage 12 CLI Usage Examples
+
+### 1. Fine-Tune Candidates (Approve, Reject, Adjust Timestamps, Change Category)
+```bash
+# Reject a clip and adjust time boundaries on another clip
+python main.py agent-review \
+  --project-dir ./projects/podcast_001 \
+  --reject clip_002 \
+  --modify-time clip_001:12.5-32.0 \
+  --modify-category clip_001:Humor
+```
+
+### 2. View Performance Telemetry & Benchmark Audit
+```bash
+python main.py agent-status --project-dir ./projects/podcast_001
+```
+
+---
+
+## Complete 12-Stage Architecture Overview
+
+```text
+                     ┌──────────────────┐
+                     │   Input Video    │
+                     └────────┬─────────┘
+                              ↓
+                     ┌──────────────────┐
+                     │ Video Inspector  │  (Stage 1)
+                     └────────┬─────────┘
+                              ↓
+               ┌──────────────┴──────────────┐
+               ↓                             ↓
+        ┌─────────────┐              ┌─────────────┐
+        │ Transcriber │              │Frame Analyzer│  (Stages 2 & 3)
+        └──────┬──────┘              └──────┬──────┘
+               ↓                            ↓
+               └──────────────┬─────────────┘
+                              ↓
+                   ┌─────────────────────┐
+                   │ Moment Detector     │  (Stage 4)
+                   └──────────┬──────────┘
+                              ↓
+                   ┌─────────────────────┐
+                   │ Rank + Deduplicate  │  (Stages 5 & 12)
+                   │ + Diversity Balancer│
+                   └──────────┬──────────┘
+                              ↓
+                   ┌─────────────────────┐
+                   │ Boundary Optimizer  │  (Stage 5)
+                   └──────────┬──────────┘
+                              ↓
+                   ┌─────────────────────┐
+                   │ Clip Extractor & QA │  (Stage 6)
+                   └──────────┬──────────┘
+                              ↓
+                   ┌─────────────────────┐
+                   │ Vertical Editor     │  (Stage 7: 9:16 Smart Reframing)
+                   └──────────┬──────────┘
+                              ↓
+               ┌──────────────┴──────────────┐
+               ↓                             ↓
+        ┌─────────────┐              ┌─────────────┐
+        │ Caption AI  │              │ Thumbnail AI│  (Stages 8 & 9)
+        └──────┬──────┘              └──────┬──────┘
+               └──────────────┬─────────────┘
+                              ↓
+                     ┌────────────────┐
+                     │ Metadata Agent │  (Stage 9)
+                     └───────┬────────┘
+                             ↓
+                     ┌────────────────┐
+                     │ Multimodal QA  │  (Stage 10)
+                     └───────┬────────┘
+                             ↓
+                     ┌────────────────┐
+                     │  Orchestrator  │  (Stages 11 & 12)
+                     └───────┬────────┘
+                             ↓
+                        ┌──────────┐
+                        │  FINAL   │  (Ready for TikTok, Shorts, Reels)
+                        └──────────┘
+```
+
+
 
 
 
