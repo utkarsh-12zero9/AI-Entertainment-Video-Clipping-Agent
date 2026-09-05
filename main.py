@@ -22,6 +22,7 @@ from backend.scoring.ranker import ClipRanker
 from backend.transcription.whisper_local import LocalWhisperTranscriber
 from backend.utils.errors import VideoPipelineError
 from backend.utils.logger import logger, setup_logger
+from backend.captions.burner import CaptionBurner
 from backend.video.clip_editor import ClipEditor
 from backend.video.clip_extractor import RawClipExtractor
 from backend.video.inspector import VideoInspector
@@ -414,8 +415,53 @@ def handle_edit_clips(args: argparse.Namespace) -> int:
         return 2
 
 
+def handle_generate_captions(args: argparse.Namespace) -> int:
+    """Generates synchronized subtitles and burns them onto vertical clips."""
+    selected_file = Path(args.selected).resolve()
+    transcript_file = Path(args.transcript).resolve()
+    project_dir = Path(args.project_dir).resolve()
+
+    settings = PipelineSettings(
+        caption_style=args.style
+    )
+    burner = CaptionBurner(settings=settings)
+
+    try:
+        selected_data = json.loads(selected_file.read_text(encoding="utf-8"))
+        selected_report = SelectedClipsReport.model_validate(selected_data)
+
+        transcript_data = json.loads(transcript_file.read_text(encoding="utf-8"))
+        transcript = TranscriptResult.model_validate(transcript_data)
+
+        workspace = WorkspaceManager.create_workspace(project_dir)
+
+        caption_report = burner.process_all_clips(selected_report, transcript, workspace, style=args.style)
+        report_file = WorkspaceManager.save_caption_report(caption_report, workspace)
+
+        print("\n" + "=" * 65)
+        print(f"CAPTION GENERATION & RENDERING COMPLETE ({len(caption_report.clips)} CLIPS)")
+        print("=" * 65)
+        print(f"Caption Style:       {caption_report.caption_style}")
+        print(f"Caption Report File: {report_file}")
+        print("-" * 65)
+        for c in caption_report.clips:
+            print(f"[{c.clip_id}] ({c.category}) | {c.total_chunks} caption chunks")
+            print(f"  SRT:   {Path(c.srt_path).relative_to(workspace.root)}")
+            print(f"  ASS:   {Path(c.ass_path).relative_to(workspace.root)}")
+            print(f"  Video: {Path(c.captioned_clip_path).relative_to(workspace.root)}")
+        print("=" * 65 + "\n")
+
+        return 0
+    except VideoPipelineError as e:
+        logger.error(f"Caption generation failed: {e}")
+        return 1
+    except Exception as e:
+        logger.exception(f"Unexpected error generating captions: {e}")
+        return 2
+
+
 def handle_process_video(args: argparse.Namespace) -> int:
-    """Executes full multi-stage pipeline (Stage 1 to Stage 7)."""
+    """Executes full multi-stage pipeline (Stage 1 to Stage 8)."""
     video_path = Path(args.input).resolve()
     output_path = Path(args.output).resolve()
 
@@ -514,10 +560,15 @@ def handle_process_video(args: argparse.Namespace) -> int:
         edit_report = clip_editor.edit_all_clips(selected_report, workspace, strategy=settings.reframing_strategy)
         edit_report_file = WorkspaceManager.save_edit_report(edit_report, workspace)
 
-        logger.info("Stage 1 through 7 pipeline completed successfully.")
+        # --- Stage 8: Caption Generation & Rendering ---
+        caption_burner = CaptionBurner(settings=settings)
+        caption_report = caption_burner.process_all_clips(selected_report, transcript, workspace, style=settings.caption_style)
+        caption_report_file = WorkspaceManager.save_caption_report(caption_report, workspace)
+
+        logger.info("Stage 1 through 8 pipeline completed successfully.")
 
         print("\n" + "=" * 65)
-        print("PIPELINE EXECUTION SUCCESSFUL (STAGES 1, 2, 3, 4, 5, 6 & 7)")
+        print("PIPELINE EXECUTION SUCCESSFUL (STAGES 1, 2, 3, 4, 5, 6, 7 & 8)")
         print("=" * 65)
         print(f"Project Workspace:    {workspace.root}")
         print(f"Metadata File:        {meta_file}")
@@ -532,7 +583,8 @@ def handle_process_video(args: argparse.Namespace) -> int:
         print(f"QA Validation Report: {qa_file}")
         print(f"QA Overall Status:    {'PASSED' if qa_report.all_passed else 'WARNING / ISSUES DETECTED'}")
         print(f"Edited 9:16 Clips:    {len(edit_report.clips)} (in {workspace.edited_clips})")
-        print(f"Edit Report File:     {edit_report_file}")
+        print(f"Captioned Clips:      {len(caption_report.clips)} (in {workspace.captioned_clips})")
+        print(f"Caption Report File:  {caption_report_file}")
         print(f"Duration:             {metadata.duration}s")
         print(f"Original Resolution:  {metadata.width}x{metadata.height} ({metadata.aspect_ratio})")
         print(f"Vertical Target:      {settings.target_vertical_width}x{settings.target_vertical_height} (9:16)")
@@ -660,10 +712,20 @@ def build_parser() -> argparse.ArgumentParser:
     edit_parser.add_argument("--loudness", type=float, default=-14.0, help="EBU R128 loudness target in LUFS (default: -14.0)")
     edit_parser.add_argument("--no-enhancements", action="store_true", help="Disable visual sharpening and contrast optimization")
 
+    # generate-captions
+    caption_parser = subparsers.add_parser(
+        "generate-captions",
+        help="Generate styled subtitles (.srt, .ass) and burn them onto vertical clips"
+    )
+    caption_parser.add_argument("--project-dir", "-p", required=True, help="Path to project directory containing edited_clips/")
+    caption_parser.add_argument("--selected", "-s", required=True, help="Path to selected_clips.json")
+    caption_parser.add_argument("--transcript", "-t", required=True, help="Path to transcript.json")
+    caption_parser.add_argument("--style", default="bold_highlight", choices=["bold_highlight", "clean", "karaoke"], help="Subtitle styling template (default: bold_highlight)")
+
     # process-video
     process_parser = subparsers.add_parser(
         "process-video",
-        help="Execute full pipeline (Stages 1 to 7: Ingestion, Audio/Transcript, Visuals, Moments, Ranking, Extraction, QA & Editing)"
+        help="Execute full pipeline (Stages 1 to 8: Ingestion, Audio/Transcript, Visuals, Moments, Ranking, Extraction, QA, Editing & Captions)"
     )
     process_parser.add_argument("--input", "-i", required=True, help="Path to source video file")
     process_parser.add_argument("--output", "-o", required=True, help="Target project directory path")
@@ -706,6 +768,8 @@ def main() -> None:
         exit_code = handle_qa_clips(args)
     elif args.command == "edit-clips":
         exit_code = handle_edit_clips(args)
+    elif args.command == "generate-captions":
+        exit_code = handle_generate_captions(args)
     elif args.command == "process-video":
         exit_code = handle_process_video(args)
     else:

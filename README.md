@@ -526,6 +526,103 @@ projects/podcast_001/
     └── clip_qa_report.json
 ```
 
+---
+
+## Current Status: Stage 8 — Caption Engine
+
+### What is Implemented in Stage 8:
+- **Synchronized Speech Caption Generation (`backend/captions/generator.py`)**:
+  - Re-aligns transcript timestamps to local clip time boundaries ($t_{local} = t_{global} - t_{clip\_start}$).
+  - **Mobile-Optimized Chunker**: Breaks continuous dialogue into bite-sized units of 2 to 4 words (maximum 28 characters per line) to prevent text clutter.
+  - **Dynamic Keyword Emphasizer**: Detects high-energy, punchy, or emphatic words (e.g. *crazy, insane, wow, literally, best, secret, never*) and highlights them with distinct color emphasis.
+  - Exports standard SubRip (`.srt`) and styled Advanced SubStation Alpha (`.ass`) subtitle files to `captions/`.
+- **Safe-Area Typography & Subtitle Burning (`backend/captions/burner.py`)**:
+  - Uses ASS format with `Alignment=2` (Bottom-Center) and `MarginV=320` to guarantee captions render inside mobile-safe areas (preventing overlap with TikTok/Reels UI buttons and keeping faces clear).
+  - Uses FFmpeg `subtitles` filter with font scaling and stroke outline (`BorderStyle=1, Outline=6, Shadow=3`) for maximum readability over dynamic backgrounds.
+  - Renders final vertical captioned videos into `edited_clips_with_captions/<category>/<clip_id>.mp4`.
+  - Exports telemetry report to `analysis/caption_report.json`.
+- **CLI Commands**:
+  - `generate-captions`: Generates subtitles and renders captioned clips from existing project artifacts.
+  - `process-video`: Executes full pipeline from Ingestion (Stage 1) through Captions (Stage 8) autonomously.
+
+---
+
+## Stage 8 CLI Usage Examples
+
+### 1. Generate and Burn Captions for Project Clips
+```bash
+python main.py generate-captions \
+  --project-dir ./projects/podcast_001 \
+  --selected ./projects/podcast_001/selected/selected_clips.json \
+  --transcript ./projects/podcast_001/transcript/transcript.json \
+  --style bold_highlight
+```
+
+### 2. Run Full Pipeline (Stages 1 through 8)
+```bash
+python main.py process-video \
+  --input ./podcast_episode.mp4 \
+  --output ./projects/podcast_001 \
+  --model base \
+  --max-clips 8
+```
+
+Project workspace structure after Stage 8:
+```text
+projects/podcast_001/
+├── video_metadata.json
+├── pipeline.log
+├── input/
+│   └── podcast_episode.mp4
+├── audio/
+│   └── audio.wav
+├── transcript/
+│   ├── transcript.json
+│   └── transcript.txt
+├── frames/
+│   ├── index.json
+│   └── frame_00000*.jpg
+├── analysis/
+│   ├── scenes.json
+│   ├── visual_analysis.json
+│   ├── edit_report.json
+│   └── caption_report.json
+├── candidates/
+│   ├── candidates.json
+│   └── candidates.md
+├── selected/
+│   └── selected_clips.json
+├── raw_clips/
+│   ├── funny/
+│   │   └── funny_001.mp4
+│   ├── storytelling/
+│   │   └── storytelling_002.mp4
+│   └── surprising/
+│       └── surprising_003.mp4
+├── edited_clips/
+│   ├── funny/
+│   │   └── funny_001.mp4
+│   ├── storytelling/
+│   │   └── storytelling_002.mp4
+│   └── surprising/
+│       └── surprising_003.mp4
+├── captions/
+│   ├── funny_001.srt
+│   ├── funny_001.ass
+│   ├── storytelling_002.srt
+│   └── storytelling_002.ass
+├── edited_clips_with_captions/
+│   ├── funny/
+│   │   └── funny_001.mp4
+│   ├── storytelling/
+│   │   └── storytelling_002.mp4
+│   └── surprising/
+│       └── surprising_003.mp4
+└── qa/
+    └── clip_qa_report.json
+```
+
+
 
 
 

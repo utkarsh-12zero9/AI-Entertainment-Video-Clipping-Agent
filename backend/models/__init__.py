@@ -1,5 +1,6 @@
 """Models package."""
 from backend.models.candidate import CandidateMoment, CandidateReport, CandidateScores
+from backend.models.caption import CaptionChunk, CaptionWord, ClipCaptionResult, ProjectCaptionReport
 from backend.models.clip import ClipSpecification, SelectedClipsReport
 from backend.models.editing import CropWindow, EditedClipResult, ProjectEditReport
 from backend.models.qa import ClipQAChecks, ClipQAResult, ProjectQAReport
@@ -37,5 +38,10 @@ __all__ = [
     "CropWindow",
     "EditedClipResult",
     "ProjectEditReport",
+    "CaptionWord",
+    "CaptionChunk",
+    "ClipCaptionResult",
+    "ProjectCaptionReport",
 ]
+
 

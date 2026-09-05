@@ -10,6 +10,7 @@ from backend.utils.logger import logger
 
 if TYPE_CHECKING:
     from backend.models.candidate import CandidateReport
+    from backend.models.caption import ProjectCaptionReport
     from backend.models.clip import SelectedClipsReport
     from backend.models.editing import ProjectEditReport
     from backend.models.qa import ProjectQAReport
@@ -174,5 +175,18 @@ class WorkspaceManager:
             f.write(report.model_dump_json(indent=4))
         logger.info(f"Saved edit report to: {edit_file}")
         return edit_file
+
+    @staticmethod
+    def save_caption_report(
+        report: "ProjectCaptionReport",
+        workspace: ProjectWorkspace,
+    ) -> Path:
+        """Saves analysis/caption_report.json inside workspace."""
+        cap_file = workspace.analysis_dir / "caption_report.json"
+        with open(cap_file, "w", encoding="utf-8") as f:
+            f.write(report.model_dump_json(indent=4))
+        logger.info(f"Saved caption report to: {cap_file}")
+        return cap_file
+
 
 

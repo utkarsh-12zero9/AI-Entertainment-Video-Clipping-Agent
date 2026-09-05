@@ -57,6 +57,16 @@ class PipelineSettings(BaseModel):
     reframing_strategy: str = Field(default="smart_face", description="Smart reframing strategy: 'smart_face' or 'center'")
     audio_loudnorm_target: float = Field(default=-14.0, description="EBU R128 integrated loudness target (LUFS)")
     enable_visual_enhancements: bool = Field(default=True, description="Apply subtle sharpening and contrast optimization")
+
+    # Stage 8: Caption Engine
+    caption_style: str = Field(default="bold_highlight", description="Caption style: 'bold_highlight', 'clean', or 'karaoke'")
+    caption_font_name: str = Field(default="Arial", description="Font name for rendered subtitles")
+    caption_font_size: int = Field(default=18, description="Base font size in ASS units (rendered to 1080x1920)")
+    caption_primary_color: str = Field(default="&H00FFFFFF", description="ASS color for standard text (White)")
+    caption_highlight_color: str = Field(default="&H0000FFFF", description="ASS color for highlighted keywords (Bright Yellow)")
+    caption_outline_color: str = Field(default="&H00000000", description="ASS outline/shadow color (Black)")
+    caption_max_words_per_chunk: int = Field(default=4, description="Maximum words per short subtitle chunk")
+    caption_max_chars_per_line: int = Field(default=28, description="Maximum characters per subtitle line")
     
     # Tool binaries
     ffmpeg_bin: str = Field(default="ffmpeg", description="Path or command for ffmpeg")
