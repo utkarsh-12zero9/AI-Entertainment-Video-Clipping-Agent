@@ -74,3 +74,60 @@ projects/my_video_001/
 ```bash
 python -m pytest -v
 ```
+
+---
+
+## Current Status: Stage 2 — Audio Extraction + Transcription
+
+### What is Implemented in Stage 2:
+- **Free, Open-Source Local Transcription**:
+  - Uses local OpenAI Whisper models (`tiny`, `base`, `small`, `medium`, `large`).
+  - No paid API keys or external services required. Runs on local CPU or CUDA automatically.
+- **Audio Extraction Engine (`backend/audio/extractor.py`)**:
+  - `AudioExtractor`: Automatically extracts high-fidelity 16kHz mono uncompressed PCM audio (`audio/audio.wav`), optimized for speech recognition.
+  - Validates audio stream existence and output non-emptiness.
+- **Timestamped Transcription (`backend/transcription/whisper_local.py`)**:
+  - `LocalWhisperTranscriber`: Generates segment-level timestamps (`start`, `end`, `text`) and word-level timestamps (`words` with start, end, confidence).
+  - Pluggable `BaseTranscriber` interface ready for future speaker diarization.
+- **Artifact Serialization**:
+  - `transcript/transcript.json`: Structured JSON containing detected language, duration, segments, and word timestamps.
+  - `transcript/transcript.txt`: Clean plaintext transcript text.
+- **New CLI Commands**:
+  - `extract-audio`: Extracts 16kHz mono WAV from any video file.
+  - `transcribe-video`: Transcribes video or audio directly using local Whisper.
+  - `process-video`: Executes both Stage 1 (Ingestion) and Stage 2 (Audio extraction & Transcription) sequentially.
+
+---
+
+## Stage 2 CLI Usage Examples
+
+### 1. Extract Audio from Video
+```bash
+python main.py extract-audio --input ./video.mp4 --output ./audio.wav
+```
+
+### 2. Transcribe Video / Audio File Directly
+```bash
+python main.py transcribe-video --input ./video.mp4 --model base --output ./transcript_out
+```
+
+### 3. Run Full Pipeline (Stage 1 + Stage 2)
+```bash
+python main.py process-video --input ./video.mp4 --output ./projects/my_project_001 --model base
+```
+
+Workspace output after Stage 2:
+```text
+projects/my_project_001/
+├── video_metadata.json
+├── pipeline.log
+├── input/
+│   └── video.mp4
+├── audio/
+│   └── audio.wav
+├── transcript/
+│   ├── transcript.json
+│   └── transcript.txt
+...
+```
+

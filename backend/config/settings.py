@@ -18,6 +18,12 @@ class PipelineSettings(BaseModel):
     target_height: int = Field(default=1920, description="Target vertical video height")
     target_aspect_ratio: str = Field(default="9:16", description="Target output aspect ratio")
     
+    # Audio Extraction & Transcription (Free open-source Whisper)
+    audio_sample_rate: int = Field(default=16000, description="Target sample rate in Hz for audio extraction")
+    whisper_model_name: str = Field(default="base", description="Free local Whisper model: tiny, base, small, medium")
+    whisper_device: str = Field(default="auto", description="Device for Whisper inference: auto, cpu, cuda")
+    transcribe_word_timestamps: bool = Field(default=True, description="Enable word-level timestamps")
+    
     # Tool binaries
     ffmpeg_bin: str = Field(default="ffmpeg", description="Path or command for ffmpeg")
     ffprobe_bin: str = Field(default="ffprobe", description="Path or command for ffprobe")

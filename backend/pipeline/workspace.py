@@ -3,10 +3,13 @@
 import json
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional, Tuple
 
 from backend.models.video import ProjectWorkspace, VideoMetadata
 from backend.utils.logger import logger
+
+if TYPE_CHECKING:
+    from backend.models.transcript import TranscriptResult
 
 
 class WorkspaceManager:
@@ -77,3 +80,18 @@ class WorkspaceManager:
             f.write(metadata.model_dump_json(indent=4))
         logger.info(f"Saved video metadata to: {meta_path}")
         return meta_path
+
+    @staticmethod
+    def save_transcript(transcript: "TranscriptResult", workspace: ProjectWorkspace) -> Tuple[Path, Path]:
+        """Saves transcript.json and transcript.txt inside workspace transcript_dir."""
+        json_path = workspace.transcript_dir / "transcript.json"
+        txt_path = workspace.transcript_dir / "transcript.txt"
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            f.write(transcript.model_dump_json(indent=4))
+
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(transcript.text)
+
+        logger.info(f"Saved transcript artifacts to: {json_path} and {txt_path}")
+        return json_path, txt_path
