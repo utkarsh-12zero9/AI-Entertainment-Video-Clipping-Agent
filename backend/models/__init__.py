@@ -3,6 +3,7 @@ from backend.models.candidate import CandidateMoment, CandidateReport, Candidate
 from backend.models.caption import CaptionChunk, CaptionWord, ClipCaptionResult, ProjectCaptionReport
 from backend.models.clip import ClipSpecification, SelectedClipsReport
 from backend.models.editing import CropWindow, EditedClipResult, ProjectEditReport
+from backend.models.metadata import ClipSocialMetadata, PlatformMetadata, ProjectMetadataReport
 from backend.models.qa import ClipQAChecks, ClipQAResult, ProjectQAReport
 from backend.models.transcript import TranscriptResult, TranscriptSegment, WordTimestamp
 from backend.models.video import ProjectWorkspace, VideoMetadata
@@ -42,6 +43,10 @@ __all__ = [
     "CaptionChunk",
     "ClipCaptionResult",
     "ProjectCaptionReport",
+    "PlatformMetadata",
+    "ClipSocialMetadata",
+    "ProjectMetadataReport",
 ]
+
 
 

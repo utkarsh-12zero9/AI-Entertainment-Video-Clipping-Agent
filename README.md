@@ -622,6 +622,112 @@ projects/podcast_001/
     └── clip_qa_report.json
 ```
 
+---
+
+## Current Status: Stage 9 — Thumbnail + Social Metadata Agent
+
+### What is Implemented in Stage 9:
+- **Intelligent Thumbnail Generation (`backend/metadata/thumbnail_generator.py`)**:
+  - Automatically selects the most engaging frame from vertical clips using a multi-factor clarity and subject scoring algorithm:
+    $$\text{Score} = 0.40 \cdot \text{Sharpness} (\text{Laplacian variance}) + 0.35 \cdot \text{Face Score} (\text{OpenCV Haar Cascades}) + 0.25 \cdot \text{Contrast}$$
+  - **Pillow Hook Headline Overlay**: Renders high-contrast, gold-bordered hook banner overlays on the top-third of the thumbnail, dynamically avoiding detected speaker faces.
+  - Generates high-quality 1080x1920 JPG files in `thumbnails/<clip_id>.jpg`.
+- **Platform-Tailored Social Metadata Agent (`backend/metadata/social_metadata_generator.py`)**:
+  - Generates targeted metadata packages for:
+    - **YouTube Shorts**: High-CTR title ($\le 60$ chars) with `#Shorts`, rich description with timestamps and keywords, niche hashtags.
+    - **Instagram Reels**: Short punchy title, line-broken aesthetic caption with emojis, 15+ curated hashtags, follow/share call-to-action.
+    - **TikTok**: Curiosity-gap hook caption with trending tags (`#fyp`, `#viral`, niche tags), strong engagement prompt.
+    - **Facebook Reels**: Conversational hook title, engagement questions, shareable call-to-action.
+  - Saves individual structured metadata files to `metadata/<clip_id>.json` and an aggregated report to `analysis/metadata_report.json`.
+- **CLI Commands**:
+  - `generate-metadata`: Generates thumbnails and multi-platform metadata from existing project clips.
+  - `process-video`: Executes full pipeline from Ingestion (Stage 1) through Captions (Stage 8) and Metadata/Thumbnails (Stage 9) autonomously.
+
+---
+
+## Stage 9 CLI Usage Examples
+
+### 1. Generate Thumbnails and Social Metadata for Project Clips
+```bash
+python main.py generate-metadata \
+  --project-dir ./projects/podcast_001 \
+  --selected ./projects/podcast_001/selected/selected_clips.json
+```
+
+### 2. Run Full Pipeline (Stages 1 through 9)
+```bash
+python main.py process-video \
+  --input ./podcast_episode.mp4 \
+  --output ./projects/podcast_001 \
+  --model base \
+  --max-clips 8
+```
+
+Project workspace structure after Stage 9:
+```text
+projects/podcast_001/
+├── video_metadata.json
+├── pipeline.log
+├── input/
+│   └── podcast_episode.mp4
+├── audio/
+│   └── audio.wav
+├── transcript/
+│   ├── transcript.json
+│   └── transcript.txt
+├── frames/
+│   ├── index.json
+│   └── frame_00000*.jpg
+├── analysis/
+│   ├── scenes.json
+│   ├── visual_analysis.json
+│   ├── edit_report.json
+│   ├── caption_report.json
+│   └── metadata_report.json
+├── candidates/
+│   ├── candidates.json
+│   └── candidates.md
+├── selected/
+│   └── selected_clips.json
+├── raw_clips/
+│   ├── funny/
+│   │   └── funny_001.mp4
+│   ├── storytelling/
+│   │   └── storytelling_002.mp4
+│   └── surprising/
+│       └── surprising_003.mp4
+├── edited_clips/
+│   ├── funny/
+│   │   └── funny_001.mp4
+│   ├── storytelling/
+│   │   └── storytelling_002.mp4
+│   └── surprising/
+│       └── surprising_003.mp4
+├── captions/
+│   ├── funny_001.srt
+│   ├── funny_001.ass
+│   ├── storytelling_002.srt
+│   └── storytelling_002.ass
+├── edited_clips_with_captions/
+│   ├── funny/
+│   │   └── funny_001.mp4
+│   ├── storytelling/
+│   │   └── storytelling_002.mp4
+│   └── surprising/
+│       └── surprising_003.mp4
+├── thumbnails/
+│   ├── funny_001.jpg
+│   ├── storytelling_002.jpg
+│   └── surprising_003.jpg
+├── metadata/
+│   ├── funny_001.json
+│   ├── storytelling_002.json
+│   └── surprising_003.json
+└── qa/
+    └── clip_qa_report.json
+```
+
+
 
 
 

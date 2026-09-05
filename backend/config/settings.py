@@ -67,6 +67,15 @@ class PipelineSettings(BaseModel):
     caption_outline_color: str = Field(default="&H00000000", description="ASS outline/shadow color (Black)")
     caption_max_words_per_chunk: int = Field(default=4, description="Maximum words per short subtitle chunk")
     caption_max_chars_per_line: int = Field(default=28, description="Maximum characters per subtitle line")
+
+    # Stage 9: Thumbnail & Social Metadata
+    thumbnail_overlay_text: bool = Field(default=True, description="Whether to render high-contrast hook text banner onto thumbnail")
+    thumbnail_font_size: int = Field(default=52, description="Font size for thumbnail overlay text")
+    thumbnail_num_sample_frames: int = Field(default=15, description="Number of candidate frames to sample and score for thumbnail")
+    default_platforms: list[str] = Field(
+        default=["youtube_shorts", "instagram_reels", "tiktok", "facebook_reels"],
+        description="Target social media platforms for metadata generation"
+    )
     
     # Tool binaries
     ffmpeg_bin: str = Field(default="ffmpeg", description="Path or command for ffmpeg")

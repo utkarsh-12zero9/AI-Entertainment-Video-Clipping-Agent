@@ -59,9 +59,17 @@ class ProjectWorkspace(BaseModel):
         return self.root / "edited_clips_with_captions"
 
     @property
-    def metadata_file(self) -> Path:
+    def thumbnails(self) -> Path:
+        return self.thumbnails_dir
 
+    @property
+    def metadata(self) -> Path:
+        return self.metadata_dir
+
+    @property
+    def metadata_file(self) -> Path:
         return self.root / "video_metadata.json"
+
 
     @property
     def log_file(self) -> Path:

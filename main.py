@@ -12,8 +12,12 @@ from backend.analyzers.visual_analyzer import VisualAnalyzer
 from backend.audio.extractor import AudioExtractor
 from backend.clip_detection.detector import EntertainmentMomentDetector
 from backend.config.settings import PipelineSettings
+from backend.captions.burner import CaptionBurner
+from backend.metadata.social_metadata_generator import SocialMetadataGenerator
+from backend.metadata.thumbnail_generator import ThumbnailGenerator
 from backend.models.candidate import CandidateReport
 from backend.models.clip import SelectedClipsReport
+from backend.models.metadata import ProjectMetadataReport
 from backend.models.transcript import TranscriptResult
 from backend.models.vision import VisualAnalysisResult
 from backend.pipeline.workspace import WorkspaceManager
@@ -22,7 +26,6 @@ from backend.scoring.ranker import ClipRanker
 from backend.transcription.whisper_local import LocalWhisperTranscriber
 from backend.utils.errors import VideoPipelineError
 from backend.utils.logger import logger, setup_logger
-from backend.captions.burner import CaptionBurner
 from backend.video.clip_editor import ClipEditor
 from backend.video.clip_extractor import RawClipExtractor
 from backend.video.inspector import VideoInspector
@@ -460,6 +463,70 @@ def handle_generate_captions(args: argparse.Namespace) -> int:
         return 2
 
 
+def handle_generate_metadata(args: argparse.Namespace) -> int:
+    """Generates AI thumbnails and social metadata packages for clips."""
+    project_dir = Path(args.project_dir).resolve()
+    selected_file = Path(args.selected).resolve()
+
+    if not project_dir.exists():
+        logger.error(f"Project directory not found: {project_dir}")
+        return 1
+    if not selected_file.exists():
+        logger.error(f"Selected clips file not found: {selected_file}")
+        return 1
+
+    settings = PipelineSettings(
+        thumbnail_overlay_text=not args.no_overlay,
+    )
+    thumb_gen = ThumbnailGenerator(settings=settings)
+    meta_gen = SocialMetadataGenerator(settings=settings)
+
+    try:
+        selected_data = json.loads(selected_file.read_text(encoding="utf-8"))
+        selected_report = SelectedClipsReport.model_validate(selected_data)
+        workspace = WorkspaceManager.create_workspace(project_dir)
+
+        # 1. Generate thumbnails
+        thumb_map = thumb_gen.generate_all_thumbnails(selected_report, workspace)
+
+        # 2. Generate multi-platform social metadata
+        metadata_map = meta_gen.generate_all_metadata(selected_report, workspace, thumb_map)
+
+        # 3. Save each clip's metadata JSON and overall report
+        for clip_id, meta in metadata_map.items():
+            WorkspaceManager.save_social_metadata(meta, workspace)
+
+        from datetime import datetime, timezone
+        meta_report = ProjectMetadataReport(
+            project_id=workspace.project_id,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            total_clips=len(metadata_map),
+            clips=list(metadata_map.values()),
+        )
+        report_file = WorkspaceManager.save_metadata_report(meta_report, workspace)
+
+        print("\n" + "=" * 65)
+        print(f"THUMBNAIL & SOCIAL METADATA GENERATION COMPLETE ({len(metadata_map)} CLIPS)")
+        print("=" * 65)
+        print(f"Metadata Report:   {report_file}")
+        print("-" * 65)
+        for clip_id, meta in metadata_map.items():
+            print(f"[{clip_id}]")
+            print(f"  Thumbnail:     {Path(meta.thumbnail_path).relative_to(workspace.root) if meta.thumbnail_path else 'N/A'}")
+            print(f"  Primary Title: {meta.primary_title}")
+            for plat, p_meta in meta.platforms.items():
+                print(f"  -> {plat:<15}: {p_meta.title[:45]}... ({len(p_meta.hashtags)} tags)")
+        print("=" * 65 + "\n")
+
+        return 0
+    except VideoPipelineError as e:
+        logger.error(f"Metadata generation failed: {e}")
+        return 1
+    except Exception as e:
+        logger.exception(f"Unexpected error generating metadata: {e}")
+        return 2
+
+
 def handle_process_video(args: argparse.Namespace) -> int:
     """Executes full multi-stage pipeline (Stage 1 to Stage 8)."""
     video_path = Path(args.input).resolve()
@@ -565,10 +632,26 @@ def handle_process_video(args: argparse.Namespace) -> int:
         caption_report = caption_burner.process_all_clips(selected_report, transcript, workspace, style=settings.caption_style)
         caption_report_file = WorkspaceManager.save_caption_report(caption_report, workspace)
 
-        logger.info("Stage 1 through 8 pipeline completed successfully.")
+        # --- Stage 9: Thumbnail Generation & Multi-Platform Social Metadata ---
+        thumb_gen = ThumbnailGenerator(settings=settings)
+        meta_gen = SocialMetadataGenerator(settings=settings)
+        thumb_map = thumb_gen.generate_all_thumbnails(selected_report, workspace)
+        metadata_map = meta_gen.generate_all_metadata(selected_report, workspace, thumb_map)
+        for clip_id, meta in metadata_map.items():
+            WorkspaceManager.save_social_metadata(meta, workspace)
+        from datetime import datetime, timezone
+        meta_report = ProjectMetadataReport(
+            project_id=workspace.project_id,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            total_clips=len(metadata_map),
+            clips=list(metadata_map.values()),
+        )
+        meta_report_file = WorkspaceManager.save_metadata_report(meta_report, workspace)
+
+        logger.info("Stage 1 through 9 pipeline completed successfully.")
 
         print("\n" + "=" * 65)
-        print("PIPELINE EXECUTION SUCCESSFUL (STAGES 1, 2, 3, 4, 5, 6, 7 & 8)")
+        print("PIPELINE EXECUTION SUCCESSFUL (STAGES 1, 2, 3, 4, 5, 6, 7, 8 & 9)")
         print("=" * 65)
         print(f"Project Workspace:    {workspace.root}")
         print(f"Metadata File:        {meta_file}")
@@ -585,6 +668,9 @@ def handle_process_video(args: argparse.Namespace) -> int:
         print(f"Edited 9:16 Clips:    {len(edit_report.clips)} (in {workspace.edited_clips})")
         print(f"Captioned Clips:      {len(caption_report.clips)} (in {workspace.captioned_clips})")
         print(f"Caption Report File:  {caption_report_file}")
+        print(f"Thumbnails Created:   {len(thumb_map)} (in {workspace.thumbnails_dir})")
+        print(f"Social Metadata:      {len(metadata_map)} packages (in {workspace.metadata_dir})")
+        print(f"Metadata Report:      {meta_report_file}")
         print(f"Duration:             {metadata.duration}s")
         print(f"Original Resolution:  {metadata.width}x{metadata.height} ({metadata.aspect_ratio})")
         print(f"Vertical Target:      {settings.target_vertical_width}x{settings.target_vertical_height} (9:16)")
@@ -722,10 +808,19 @@ def build_parser() -> argparse.ArgumentParser:
     caption_parser.add_argument("--transcript", "-t", required=True, help="Path to transcript.json")
     caption_parser.add_argument("--style", default="bold_highlight", choices=["bold_highlight", "clean", "karaoke"], help="Subtitle styling template (default: bold_highlight)")
 
+    # generate-metadata
+    meta_parser = subparsers.add_parser(
+        "generate-metadata",
+        help="Generate AI-selected thumbnails with hook overlays and multi-platform social metadata packages"
+    )
+    meta_parser.add_argument("--project-dir", "-p", required=True, help="Path to project directory containing clips/")
+    meta_parser.add_argument("--selected", "-s", required=True, help="Path to selected_clips.json")
+    meta_parser.add_argument("--no-overlay", action="store_true", help="Disable hook text overlay on generated thumbnails")
+
     # process-video
     process_parser = subparsers.add_parser(
         "process-video",
-        help="Execute full pipeline (Stages 1 to 8: Ingestion, Audio/Transcript, Visuals, Moments, Ranking, Extraction, QA, Editing & Captions)"
+        help="Execute full pipeline (Stages 1 to 9: Ingestion, Audio/Transcript, Visuals, Moments, Ranking, Extraction, QA, Editing, Captions & Metadata/Thumbnails)"
     )
     process_parser.add_argument("--input", "-i", required=True, help="Path to source video file")
     process_parser.add_argument("--output", "-o", required=True, help="Target project directory path")
@@ -770,6 +865,8 @@ def main() -> None:
         exit_code = handle_edit_clips(args)
     elif args.command == "generate-captions":
         exit_code = handle_generate_captions(args)
+    elif args.command == "generate-metadata":
+        exit_code = handle_generate_metadata(args)
     elif args.command == "process-video":
         exit_code = handle_process_video(args)
     else:

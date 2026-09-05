@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from backend.models.caption import ProjectCaptionReport
     from backend.models.clip import SelectedClipsReport
     from backend.models.editing import ProjectEditReport
+    from backend.models.metadata import ClipSocialMetadata, ProjectMetadataReport
     from backend.models.qa import ProjectQAReport
     from backend.models.transcript import TranscriptResult
     from backend.models.vision import SceneBoundary, VisualAnalysisResult
@@ -187,6 +188,30 @@ class WorkspaceManager:
             f.write(report.model_dump_json(indent=4))
         logger.info(f"Saved caption report to: {cap_file}")
         return cap_file
+
+    @staticmethod
+    def save_social_metadata(
+        metadata: "ClipSocialMetadata",
+        workspace: ProjectWorkspace,
+    ) -> Path:
+        """Saves metadata/<clip_id>.json inside workspace."""
+        meta_file = workspace.metadata_dir / f"{metadata.clip_id}.json"
+        with open(meta_file, "w", encoding="utf-8") as f:
+            f.write(metadata.model_dump_json(indent=4))
+        logger.info(f"Saved social metadata for {metadata.clip_id} to: {meta_file}")
+        return meta_file
+
+    @staticmethod
+    def save_metadata_report(
+        report: "ProjectMetadataReport",
+        workspace: ProjectWorkspace,
+    ) -> Path:
+        """Saves analysis/metadata_report.json inside workspace."""
+        meta_report_file = workspace.analysis_dir / "metadata_report.json"
+        with open(meta_report_file, "w", encoding="utf-8") as f:
+            f.write(report.model_dump_json(indent=4))
+        logger.info(f"Saved metadata report to: {meta_report_file}")
+        return meta_report_file
 
 
 
