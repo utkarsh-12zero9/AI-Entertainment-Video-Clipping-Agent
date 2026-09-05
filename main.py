@@ -17,10 +17,12 @@ from backend.metadata.social_metadata_generator import SocialMetadataGenerator
 from backend.metadata.thumbnail_generator import ThumbnailGenerator
 from backend.models.candidate import CandidateReport
 from backend.models.clip import SelectedClipsReport
+from backend.models.job import JobState
 from backend.models.metadata import ProjectMetadataReport
 from backend.models.qa import FinalProjectQAReport
 from backend.models.transcript import TranscriptResult
 from backend.models.vision import VisualAnalysisResult
+from backend.pipeline.orchestrator import PipelineOrchestrator
 from backend.pipeline.workspace import WorkspaceManager
 from backend.qa.clip_validator import ClipValidator
 from backend.qa.multimodal_qa_agent import MultimodalQAAgent
@@ -594,6 +596,125 @@ def handle_final_qa(args: argparse.Namespace) -> int:
         return 2
 
 
+def handle_orchestrate_process(args: argparse.Namespace) -> int:
+    """Executes stateful, orchestrated end-to-end pipeline with stage checkpointing."""
+    video_path = Path(args.input).resolve()
+    output_path = Path(args.output).resolve()
+
+    settings = PipelineSettings(
+        min_video_duration=args.min_duration,
+        require_audio=not args.allow_no_audio,
+        whisper_model_name=args.model,
+        whisper_device=args.device,
+        frame_sampling_strategy=args.strategy,
+        frame_sample_interval=args.interval,
+        min_candidate_duration=args.min_candidate_duration,
+        max_candidate_duration=args.max_candidate_duration,
+        min_candidate_score=args.min_candidate_score,
+        max_clips=args.max_clips,
+        min_clip_spacing_sec=args.min_spacing,
+        orchestrator_max_workers=args.workers,
+        orchestrator_auto_approve=args.auto_approve,
+    )
+    orchestrator = PipelineOrchestrator(settings=settings)
+
+    try:
+        job = orchestrator.run_pipeline(
+            source_video=video_path,
+            project_dir=output_path,
+            auto_approve=args.auto_approve,
+        )
+
+        print("\n" + "=" * 65)
+        print("AGENT ORCHESTRATION PIPELINE COMPLETE")
+        print("=" * 65)
+        print(f"Job ID:        {job.job_id}")
+        print(f"Status:        {job.status.upper()}")
+        print(f"Project Dir:   {job.project_dir}")
+        print("-" * 65)
+        print("Stage Execution Audit:")
+        for name, rec in job.stages.items():
+            dur_str = f"({rec.duration_seconds:.2f}s)" if rec.duration_seconds > 0 else ""
+            print(f"  [{rec.status.value.upper():<9}] {name:<25} {dur_str}")
+        print("=" * 65 + "\n")
+        return 0 if job.status == "completed" else 1
+    except Exception as e:
+        logger.exception(f"Orchestration failed: {e}")
+        return 2
+
+
+def handle_orchestrate_resume(args: argparse.Namespace) -> int:
+    """Resumes a paused or failed pipeline from its last recorded checkpoint."""
+    project_dir = Path(args.project_dir).resolve()
+    orchestrator = PipelineOrchestrator()
+
+    try:
+        job = orchestrator.resume_job(project_dir)
+        print("\n" + "=" * 65)
+        print("AGENT RESUME COMPLETE")
+        print("=" * 65)
+        print(f"Job ID:        {job.job_id}")
+        print(f"Status:        {job.status.upper()}")
+        print("-" * 65)
+        for name, rec in job.stages.items():
+            print(f"  [{rec.status.value.upper():<9}] {name:<25} ({rec.duration_seconds:.2f}s)")
+        print("=" * 65 + "\n")
+        return 0 if job.status == "completed" else 1
+    except Exception as e:
+        logger.exception(f"Resume failed: {e}")
+        return 2
+
+
+def handle_orchestrate_review(args: argparse.Namespace) -> int:
+    """Reviews and optionally filters candidate moments before rendering."""
+    project_dir = Path(args.project_dir).resolve()
+    orchestrator = PipelineOrchestrator()
+
+    try:
+        approved_list = [x.strip() for x in args.approve.split(",")] if args.approve else None
+        report = orchestrator.review_candidates(project_dir, approved_ids=approved_list)
+
+        print("\n" + "=" * 70)
+        print(f"CANDIDATE MOMENT REVIEW ({report.total_selected} SELECTED)")
+        print("=" * 70)
+        for i, c in enumerate(report.clips):
+            print(f"[{i+1}] {c.clip_id} ({c.category}) | {c.start_time:.1f}s -> {c.end_time:.1f}s | Score: {c.score:.2f}")
+            print(f"    Hook:   {c.hook}")
+            print(f"    Reason: {c.reason}")
+        print("=" * 70 + "\n")
+        return 0
+    except Exception as e:
+        logger.exception(f"Review failed: {e}")
+        return 2
+
+
+def handle_orchestrate_status(args: argparse.Namespace) -> int:
+    """Prints current job state, stage statuses, and artifact inventory."""
+    project_dir = Path(args.project_dir).resolve()
+    workspace = WorkspaceManager.create_workspace(project_dir)
+    job = WorkspaceManager.load_job_state(workspace)
+
+    if not job:
+        print(f"No job_state.json found in {project_dir}")
+        return 1
+
+    print("\n" + "=" * 65)
+    print("JOB STATUS & PIPELINE TELEMETRY")
+    print("=" * 65)
+    print(f"Job ID:         {job.job_id}")
+    print(f"Status:         {job.status.upper()}")
+    print(f"Current Stage:  {job.current_stage or 'None'}")
+    print(f"Created At:     {job.created_at}")
+    print(f"Updated At:     {job.updated_at}")
+    print("-" * 65)
+    for name, rec in job.stages.items():
+        dur_str = f"({rec.duration_seconds:.2f}s)" if rec.duration_seconds > 0 else ""
+        err_str = f" [ERROR: {rec.error}]" if rec.error else ""
+        print(f"  [{rec.status.value.upper():<9}] {name:<25} {dur_str}{err_str}")
+    print("=" * 65 + "\n")
+    return 0
+
+
 def handle_process_video(args: argparse.Namespace) -> int:
     """Executes full multi-stage pipeline (Stage 1 to Stage 8)."""
     video_path = Path(args.input).resolve()
@@ -916,6 +1037,49 @@ def build_parser() -> argparse.ArgumentParser:
     process_parser.add_argument("--max-clips", type=int, default=8, help="Maximum number of final clips to select")
     process_parser.add_argument("--min-spacing", type=float, default=15.0, help="Minimum spacing in seconds between selected clips")
 
+    # agent-process
+    agent_proc_parser = subparsers.add_parser(
+        "agent-process",
+        help="Execute autonomous end-to-end orchestration pipeline with state checkpoints and error recovery"
+    )
+    agent_proc_parser.add_argument("--input", "-i", required=True, help="Path to source video file")
+    agent_proc_parser.add_argument("--output", "-o", required=True, help="Target project directory path")
+    agent_proc_parser.add_argument("--min-duration", type=float, default=5.0, help="Minimum allowed video duration in seconds")
+    agent_proc_parser.add_argument("--allow-no-audio", action="store_true", help="Do not reject video if it has no audio stream")
+    agent_proc_parser.add_argument("--model", "-m", default="base", choices=["tiny", "base", "small", "medium", "large"], help="Whisper model size")
+    agent_proc_parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"], help="Inference device")
+    agent_proc_parser.add_argument("--strategy", "-s", default="adaptive", choices=["fixed_interval", "scene_change", "adaptive"], help="Frame sampling strategy")
+    agent_proc_parser.add_argument("--interval", type=float, default=2.0, help="Frame sampling interval in seconds")
+    agent_proc_parser.add_argument("--min-candidate-duration", type=float, default=15.0, help="Minimum candidate duration in seconds")
+    agent_proc_parser.add_argument("--max-candidate-duration", type=float, default=45.0, help="Maximum candidate duration in seconds")
+    agent_proc_parser.add_argument("--min-candidate-score", type=float, default=0.50, help="Minimum candidate social potential score")
+    agent_proc_parser.add_argument("--max-clips", type=int, default=8, help="Maximum number of final clips to select")
+    agent_proc_parser.add_argument("--min-spacing", type=float, default=15.0, help="Minimum spacing in seconds between selected clips")
+    agent_proc_parser.add_argument("--workers", "-w", type=int, default=4, help="Maximum worker threads for parallel stage execution")
+    agent_proc_parser.add_argument("--auto-approve", action="store_true", default=True, help="Automatically approve ranked candidates without pausing for human review")
+
+    # agent-resume
+    agent_res_parser = subparsers.add_parser(
+        "agent-resume",
+        help="Resume an existing or interrupted orchestration job from its last completed checkpoint"
+    )
+    agent_res_parser.add_argument("--project-dir", "-p", required=True, help="Path to existing project directory containing job_state.json")
+
+    # agent-review
+    agent_rev_parser = subparsers.add_parser(
+        "agent-review",
+        help="Inspect or filter candidate moments for an orchestration job"
+    )
+    agent_rev_parser.add_argument("--project-dir", "-p", required=True, help="Path to project directory")
+    agent_rev_parser.add_argument("--approve", help="Optional comma-separated list of clip IDs to keep (e.g. clip_001,clip_003)")
+
+    # agent-status
+    agent_stat_parser = subparsers.add_parser(
+        "agent-status",
+        help="Display detailed status, telemetry, and checkpoint audit of an orchestration job"
+    )
+    agent_stat_parser.add_argument("--project-dir", "-p", required=True, help="Path to project directory")
+
     return parser
 
 
@@ -951,6 +1115,14 @@ def main() -> None:
         exit_code = handle_final_qa(args)
     elif args.command == "process-video":
         exit_code = handle_process_video(args)
+    elif args.command == "agent-process":
+        exit_code = handle_orchestrate_process(args)
+    elif args.command == "agent-resume":
+        exit_code = handle_orchestrate_resume(args)
+    elif args.command == "agent-review":
+        exit_code = handle_orchestrate_review(args)
+    elif args.command == "agent-status":
+        exit_code = handle_orchestrate_status(args)
     else:
         parser.print_help()
         exit_code = 1

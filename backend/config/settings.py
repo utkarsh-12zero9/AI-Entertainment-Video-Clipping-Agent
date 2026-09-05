@@ -82,6 +82,10 @@ class PipelineSettings(BaseModel):
     qa_promote_passing_to_final: bool = Field(default=True, description="Automatically copy passing clips, thumbnails, and metadata to final/")
     qa_abrupt_cut_tolerance_sec: float = Field(default=0.25, description="Tolerance buffer in seconds when evaluating word speech boundaries")
 
+    # Stage 11: End-to-End Orchestrator
+    orchestrator_max_workers: int = Field(default=4, description="Maximum concurrent worker threads for clip processing")
+    orchestrator_auto_approve: bool = Field(default=True, description="Automatically approve ranked candidates without pausing for review")
+
     # Tool binaries
     ffmpeg_bin: str = Field(default="ffmpeg", description="Path or command for ffmpeg")
     ffprobe_bin: str = Field(default="ffprobe", description="Path or command for ffprobe")

@@ -851,6 +851,110 @@ projects/podcast_001/
         └── surprising_003.json
 ```
 
+---
+
+## Current Status: Stage 11 — End-to-End Orchestrator & State Machine Agent
+
+### What is Implemented in Stage 11:
+- **Persistent Job State Machine (`backend/models/job.py`)**:
+  - `JobState` tracks status (`pending`, `running`, `completed`, `failed`, `paused`) across all 17 pipeline steps in strict order.
+  - Per-stage execution telemetry with `StageExecutionRecord` (status, start/finish ISO timestamps, duration in seconds, error logs, and registered artifacts).
+  - Checkpointed state serialization into `job_state.json` inside the project workspace directory.
+- **Full Pipeline Orchestrator (`backend/pipeline/orchestrator.py`)**:
+  - **Artifact Caching & Skipping**: Automatically discovers existing valid intermediate artifacts (`video_metadata.json`, `audio.wav`, `transcript.json`, `scenes.json`, `index.json`, `visual_analysis.json`, `candidates.json`, `selected_clips.json`, etc.) and avoids expensive re-computation.
+  - **Resume Capability (`resume_job`)**: Detects interrupted, paused, or failed pipeline executions and resumes directly from the next incomplete stage without repeating already verified work.
+  - **Human-in-the-Loop Review (`review_candidates`)**: Allows users or operator agents to review ranked moment specifications, filter down to an approved subset of clip IDs (`--approve clip_001,clip_003`), and persist updated selections before triggering heavy rendering.
+  - **Controlled Concurrency**: Stage concurrency managed via ThreadPoolExecutor (`orchestrator_max_workers=4`).
+- **CLI Commands**:
+  - `agent-process`: Runs the autonomous orchestrated pipeline with checkpoint tracking.
+  - `agent-resume`: Resumes a pipeline from its last checkpoint using `--project-dir`.
+  - `agent-review`: Displays candidate moment summaries and applies optional selection filters.
+  - `agent-status`: Inspects telemetry, per-stage timing, and artifact inventory of an active or completed job.
+
+---
+
+## Stage 11 CLI Usage Examples
+
+### 1. Run Orchestrated End-to-End Pipeline
+```bash
+python main.py agent-process \
+  --input ./podcast_episode.mp4 \
+  --output ./projects/podcast_001 \
+  --model base \
+  --max-clips 8 \
+  --workers 4
+```
+
+### 2. Inspect Pipeline Job Telemetry & Stage Status
+```bash
+python main.py agent-status --project-dir ./projects/podcast_001
+```
+
+### 3. Review & Filter Candidate Moments (Human-in-the-Loop)
+```bash
+# View candidate moments
+python main.py agent-review --project-dir ./projects/podcast_001
+
+# Filter to keep only approved clips
+python main.py agent-review --project-dir ./projects/podcast_001 --approve clip_001,clip_003
+```
+
+### 4. Resume an Interrupted or Paused Job
+```bash
+python main.py agent-resume --project-dir ./projects/podcast_001
+```
+
+Project workspace structure after Stage 11:
+```text
+projects/podcast_001/
+├── job_state.json               <-- Stage 11 state checkpoint & telemetry
+├── video_metadata.json
+├── pipeline.log
+├── input/
+│   └── podcast_episode.mp4
+├── audio/
+│   └── audio.wav
+├── transcript/
+│   ├── transcript.json
+│   └── transcript.txt
+├── frames/
+│   ├── index.json
+│   └── frame_00000*.jpg
+├── analysis/
+│   ├── scenes.json
+│   ├── visual_analysis.json
+│   ├── edit_report.json
+│   ├── caption_report.json
+│   └── metadata_report.json
+├── candidates/
+│   ├── candidates.json
+│   └── candidates.md
+├── selected/
+│   └── selected_clips.json
+├── raw_clips/
+│   └── <category>/<clip_id>.mp4
+├── edited_clips/
+│   └── <category>/<clip_id>.mp4
+├── captions/
+│   ├── <clip_id>.srt
+│   └── <clip_id>.ass
+├── edited_clips_with_captions/
+│   └── <category>/<clip_id>.mp4
+├── thumbnails/
+│   └── <clip_id>.jpg
+├── metadata/
+│   └── <clip_id>.json
+├── qa/
+│   ├── clip_qa_report.json
+│   └── final_report.json
+└── final/
+    └── <category>/
+        ├── <clip_id>.mp4
+        ├── <clip_id>.jpg
+        └── <clip_id>.json
+```
+
+
 
 
 

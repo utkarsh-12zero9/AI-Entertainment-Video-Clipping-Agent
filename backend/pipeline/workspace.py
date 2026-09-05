@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from backend.models.caption import ProjectCaptionReport
     from backend.models.clip import SelectedClipsReport
     from backend.models.editing import ProjectEditReport
+    from backend.models.job import JobState
     from backend.models.metadata import ClipSocialMetadata, ProjectMetadataReport
     from backend.models.qa import FinalProjectQAReport, ProjectQAReport
     from backend.models.transcript import TranscriptResult
@@ -154,6 +155,16 @@ class WorkspaceManager:
         return selected_file
 
     @staticmethod
+    def load_selected_clips(workspace: ProjectWorkspace) -> Optional["SelectedClipsReport"]:
+        """Loads selected/selected_clips.json from workspace if present."""
+        selected_file = workspace.selected_dir / "selected_clips.json"
+        if not selected_file.exists():
+            return None
+        from backend.models.clip import SelectedClipsReport
+        with open(selected_file, "r", encoding="utf-8") as f:
+            return SelectedClipsReport.model_validate(json.load(f))
+
+    @staticmethod
     def save_qa_report(
         report: "ProjectQAReport",
         workspace: ProjectWorkspace,
@@ -224,6 +235,36 @@ class WorkspaceManager:
             f.write(report.model_dump_json(indent=4))
         logger.info(f"Saved final multimodal QA report to: {final_qa_file}")
         return final_qa_file
+
+    @staticmethod
+    def save_job_state(
+        job_state: "JobState",
+        workspace: ProjectWorkspace,
+    ) -> Path:
+        """Saves job_state.json directly inside project root."""
+        job_file = workspace.root / "job_state.json"
+        with open(job_file, "w", encoding="utf-8") as f:
+            f.write(job_state.model_dump_json(indent=4))
+        logger.debug(f"Saved job state checkpoint to: {job_file}")
+        return job_file
+
+    @staticmethod
+    def load_job_state(
+        workspace: ProjectWorkspace,
+    ) -> Optional["JobState"]:
+        """Loads job_state.json from project root if it exists."""
+        from backend.models.job import JobState
+        job_file = workspace.root / "job_state.json"
+        if not job_file.exists():
+            return None
+        try:
+            with open(job_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return JobState.model_validate(data)
+        except Exception as e:
+            logger.warning(f"Failed to load job_state.json from {job_file}: {e}")
+            return None
+
 
 
 
