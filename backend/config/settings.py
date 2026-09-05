@@ -76,10 +76,16 @@ class PipelineSettings(BaseModel):
         default=["youtube_shorts", "instagram_reels", "tiktok", "facebook_reels"],
         description="Target social media platforms for metadata generation"
     )
-    
+
+    # Stage 10: Final Multimodal QA
+    qa_min_overall_score: float = Field(default=0.75, description="Minimum overall multimodal QA score to pass (0.0 to 1.0)")
+    qa_promote_passing_to_final: bool = Field(default=True, description="Automatically copy passing clips, thumbnails, and metadata to final/")
+    qa_abrupt_cut_tolerance_sec: float = Field(default=0.25, description="Tolerance buffer in seconds when evaluating word speech boundaries")
+
     # Tool binaries
     ffmpeg_bin: str = Field(default="ffmpeg", description="Path or command for ffmpeg")
     ffprobe_bin: str = Field(default="ffprobe", description="Path or command for ffprobe")
+
 
 
 # Default global settings instance

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from backend.models.clip import SelectedClipsReport
     from backend.models.editing import ProjectEditReport
     from backend.models.metadata import ClipSocialMetadata, ProjectMetadataReport
-    from backend.models.qa import ProjectQAReport
+    from backend.models.qa import FinalProjectQAReport, ProjectQAReport
     from backend.models.transcript import TranscriptResult
     from backend.models.vision import SceneBoundary, VisualAnalysisResult
 
@@ -212,6 +212,19 @@ class WorkspaceManager:
             f.write(report.model_dump_json(indent=4))
         logger.info(f"Saved metadata report to: {meta_report_file}")
         return meta_report_file
+
+    @staticmethod
+    def save_final_qa_report(
+        report: "FinalProjectQAReport",
+        workspace: ProjectWorkspace,
+    ) -> Path:
+        """Saves qa/final_report.json inside workspace."""
+        final_qa_file = workspace.qa_dir / "final_report.json"
+        with open(final_qa_file, "w", encoding="utf-8") as f:
+            f.write(report.model_dump_json(indent=4))
+        logger.info(f"Saved final multimodal QA report to: {final_qa_file}")
+        return final_qa_file
+
 
 
 

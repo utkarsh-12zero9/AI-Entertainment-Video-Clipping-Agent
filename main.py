@@ -18,10 +18,12 @@ from backend.metadata.thumbnail_generator import ThumbnailGenerator
 from backend.models.candidate import CandidateReport
 from backend.models.clip import SelectedClipsReport
 from backend.models.metadata import ProjectMetadataReport
+from backend.models.qa import FinalProjectQAReport
 from backend.models.transcript import TranscriptResult
 from backend.models.vision import VisualAnalysisResult
 from backend.pipeline.workspace import WorkspaceManager
 from backend.qa.clip_validator import ClipValidator
+from backend.qa.multimodal_qa_agent import MultimodalQAAgent
 from backend.scoring.ranker import ClipRanker
 from backend.transcription.whisper_local import LocalWhisperTranscriber
 from backend.utils.errors import VideoPipelineError
@@ -527,6 +529,71 @@ def handle_generate_metadata(args: argparse.Namespace) -> int:
         return 2
 
 
+def handle_final_qa(args: argparse.Namespace) -> int:
+    """Runs final multimodal quality assurance and promotes approved clips to final/."""
+    project_dir = Path(args.project_dir).resolve()
+    selected_file = Path(args.selected).resolve()
+    transcript_file = Path(args.transcript).resolve() if args.transcript else None
+
+    if not project_dir.exists():
+        logger.error(f"Project directory not found: {project_dir}")
+        return 1
+    if not selected_file.exists():
+        logger.error(f"Selected clips file not found: {selected_file}")
+        return 1
+
+    settings = PipelineSettings(
+        qa_min_overall_score=args.min_score,
+        qa_promote_passing_to_final=not args.no_promote,
+    )
+    qa_agent = MultimodalQAAgent(settings=settings)
+
+    try:
+        selected_data = json.loads(selected_file.read_text(encoding="utf-8"))
+        selected_report = SelectedClipsReport.model_validate(selected_data)
+        workspace = WorkspaceManager.create_workspace(project_dir)
+
+        transcript = None
+        if transcript_file and transcript_file.exists():
+            t_data = json.loads(transcript_file.read_text(encoding="utf-8"))
+            transcript = TranscriptResult.model_validate(t_data)
+        elif (workspace.transcript_dir / "transcript.json").exists():
+            t_data = json.loads((workspace.transcript_dir / "transcript.json").read_text(encoding="utf-8"))
+            transcript = TranscriptResult.model_validate(t_data)
+
+        qa_report = qa_agent.evaluate_all_clips(selected_report, workspace, transcript)
+        report_file = WorkspaceManager.save_final_qa_report(qa_report, workspace)
+
+        print("\n" + "=" * 65)
+        print(f"FINAL MULTIMODAL QA AUDIT COMPLETE ({qa_report.passed_clips}/{qa_report.total_clips} PASSED)")
+        print("=" * 65)
+        print(f"Overall Status:       {'ALL PASSED' if qa_report.all_passed else 'REPAIRS RECOMMENDED'}")
+        print(f"Final QA Audit File:  {report_file}")
+        print(f"Export Directory:     {workspace.final_dir}")
+        print("-" * 65)
+        for r in qa_report.clips:
+            status_str = "PASSED" if r.passed else "FAILED"
+            print(f"[{r.clip_id}] ({r.category}) -> {status_str} (Score: {r.overall_score:.2f})")
+            if r.promoted_paths:
+                for k, p in r.promoted_paths.items():
+                    print(f"  -> Promoted {k:<9}: {Path(p).relative_to(workspace.root)}")
+            if r.issues:
+                for issue in r.issues:
+                    print(f"  ! Issue: {issue}")
+            if r.recommendations:
+                for rec in r.recommendations:
+                    print(f"  * Recommended Repair [{rec.action}]: {rec.reason}")
+        print("=" * 65 + "\n")
+
+        return 0 if qa_report.all_passed else 1
+    except VideoPipelineError as e:
+        logger.error(f"Final QA audit failed: {e}")
+        return 1
+    except Exception as e:
+        logger.exception(f"Unexpected error running final QA: {e}")
+        return 2
+
+
 def handle_process_video(args: argparse.Namespace) -> int:
     """Executes full multi-stage pipeline (Stage 1 to Stage 8)."""
     video_path = Path(args.input).resolve()
@@ -646,12 +713,15 @@ def handle_process_video(args: argparse.Namespace) -> int:
             total_clips=len(metadata_map),
             clips=list(metadata_map.values()),
         )
-        meta_report_file = WorkspaceManager.save_metadata_report(meta_report, workspace)
+        # --- Stage 10: Final Multimodal Quality Assurance & Promotion ---
+        qa_agent = MultimodalQAAgent(settings=settings)
+        final_qa_report = qa_agent.evaluate_all_clips(selected_report, workspace, transcript)
+        final_qa_report_file = WorkspaceManager.save_final_qa_report(final_qa_report, workspace)
 
-        logger.info("Stage 1 through 9 pipeline completed successfully.")
+        logger.info("Stage 1 through 10 pipeline completed successfully.")
 
         print("\n" + "=" * 65)
-        print("PIPELINE EXECUTION SUCCESSFUL (STAGES 1, 2, 3, 4, 5, 6, 7, 8 & 9)")
+        print("PIPELINE EXECUTION SUCCESSFUL (STAGES 1 THROUGH 10)")
         print("=" * 65)
         print(f"Project Workspace:    {workspace.root}")
         print(f"Metadata File:        {meta_file}")
@@ -663,14 +733,13 @@ def handle_process_video(args: argparse.Namespace) -> int:
         print(f"Candidate JSON:       {cand_json}")
         print(f"Selected Clips JSON:  {selected_file}")
         print(f"Raw Clips Extracted:  {len(extracted_clips)} (in {workspace.raw_clips})")
-        print(f"QA Validation Report: {qa_file}")
-        print(f"QA Overall Status:    {'PASSED' if qa_report.all_passed else 'WARNING / ISSUES DETECTED'}")
         print(f"Edited 9:16 Clips:    {len(edit_report.clips)} (in {workspace.edited_clips})")
         print(f"Captioned Clips:      {len(caption_report.clips)} (in {workspace.captioned_clips})")
-        print(f"Caption Report File:  {caption_report_file}")
         print(f"Thumbnails Created:   {len(thumb_map)} (in {workspace.thumbnails_dir})")
         print(f"Social Metadata:      {len(metadata_map)} packages (in {workspace.metadata_dir})")
-        print(f"Metadata Report:      {meta_report_file}")
+        print(f"Final QA Passed:      {final_qa_report.passed_clips}/{final_qa_report.total_clips} clips approved")
+        print(f"Final QA Audit File:  {final_qa_report_file}")
+        print(f"Exported to Final:    {workspace.final_dir}")
         print(f"Duration:             {metadata.duration}s")
         print(f"Original Resolution:  {metadata.width}x{metadata.height} ({metadata.aspect_ratio})")
         print(f"Vertical Target:      {settings.target_vertical_width}x{settings.target_vertical_height} (9:16)")
@@ -817,10 +886,21 @@ def build_parser() -> argparse.ArgumentParser:
     meta_parser.add_argument("--selected", "-s", required=True, help="Path to selected_clips.json")
     meta_parser.add_argument("--no-overlay", action="store_true", help="Disable hook text overlay on generated thumbnails")
 
+    # final-qa
+    final_qa_parser = subparsers.add_parser(
+        "final-qa",
+        help="Perform final multimodal QA audit, detect abrupt cuts, check captions/metadata, and promote passing clips to final/"
+    )
+    final_qa_parser.add_argument("--project-dir", "-p", required=True, help="Path to project directory")
+    final_qa_parser.add_argument("--selected", "-s", required=True, help="Path to selected_clips.json")
+    final_qa_parser.add_argument("--transcript", "-t", default=None, help="Path to transcript.json (optional, auto-located in project)")
+    final_qa_parser.add_argument("--min-score", type=float, default=0.75, help="Minimum overall QA passing score (default: 0.75)")
+    final_qa_parser.add_argument("--no-promote", action="store_true", help="Audit only; do not copy passing clips to final/")
+
     # process-video
     process_parser = subparsers.add_parser(
         "process-video",
-        help="Execute full pipeline (Stages 1 to 9: Ingestion, Audio/Transcript, Visuals, Moments, Ranking, Extraction, QA, Editing, Captions & Metadata/Thumbnails)"
+        help="Execute full pipeline (Stages 1 to 10: Ingestion, Audio/Transcript, Visuals, Moments, Ranking, Extraction, QA, Editing, Captions, Metadata/Thumbnails & Final QA)"
     )
     process_parser.add_argument("--input", "-i", required=True, help="Path to source video file")
     process_parser.add_argument("--output", "-o", required=True, help="Target project directory path")
@@ -867,6 +947,8 @@ def main() -> None:
         exit_code = handle_generate_captions(args)
     elif args.command == "generate-metadata":
         exit_code = handle_generate_metadata(args)
+    elif args.command == "final-qa":
+        exit_code = handle_final_qa(args)
     elif args.command == "process-video":
         exit_code = handle_process_video(args)
     else:

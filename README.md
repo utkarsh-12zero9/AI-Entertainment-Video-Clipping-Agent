@@ -727,6 +727,131 @@ projects/podcast_001/
     └── clip_qa_report.json
 ```
 
+---
+
+## Current Status: Stage 10 — Final Multimodal QA Agent
+
+### What is Implemented in Stage 10:
+- **Comprehensive Multimodal Inspection (`backend/qa/multimodal_qa_agent.py`)**:
+  - **Technical Quality Verification**: Validates video decodability (OpenCV), exact 9:16 vertical resolution (1080x1920), duration within configured tolerance, and audio stream integrity/loudness.
+  - **Speech Boundary & Abrupt Cut Detection**: Analyzes transcript word-level timestamps to detect cuts slicing through active spoken words at clip start/end boundaries ($t_{start}, t_{end}$).
+  - **Caption & Safe-Area Compliance**: Confirms presence of `.srt` / `.ass` subtitle files, non-empty dialogue cues, and mobile safe-area vertical margin compliance.
+  - **Companion Artifact Completeness**: Verifies 1080x1920 thumbnail non-flat contrast and platform-specific social metadata package completeness (YouTube Shorts, Instagram Reels, TikTok, Facebook Reels).
+- **Structured Failure Remediation & Repair Recommendations**:
+  - Rather than silently discarding failing clips, the agent produces structured repair recommendations:
+    - `RETRIM`: Outputs exact suggested start and end timestamps (e.g., expanding boundaries to salvage truncated words).
+    - `REPOSITION_CAPTIONS`: For subtitle safe-area collisions or formatting defects.
+    - `REGENERATE`: For missing companion assets or render corruption.
+- **Automated Promotion to `final/`**:
+  - Automatically promotes passing clips and their associated deliverables to:
+    - `final/<category>/<clip_id>.mp4`
+    - `final/<category>/<clip_id>.jpg`
+    - `final/<category>/<clip_id>.json`
+  - Saves a project audit report to `qa/final_report.json`.
+- **CLI Commands**:
+  - `final-qa`: Audits existing project clips, evaluates multimodal quality, and promotes approved deliverables.
+  - `process-video`: Executes full pipeline from Ingestion (Stage 1) through Final QA & Promotion (Stage 10) autonomously.
+
+---
+
+## Stage 10 CLI Usage Examples
+
+### 1. Run Final Multimodal QA on Existing Project Clips
+```bash
+python main.py final-qa \
+  --project-dir ./projects/podcast_001 \
+  --selected ./projects/podcast_001/selected/selected_clips.json \
+  --min-score 0.75
+```
+
+### 2. Run Full Autonomous Pipeline (Stages 1 through 10)
+```bash
+python main.py process-video \
+  --input ./podcast_episode.mp4 \
+  --output ./projects/podcast_001 \
+  --model base \
+  --max-clips 8
+```
+
+Project workspace structure after Stage 10:
+```text
+projects/podcast_001/
+├── video_metadata.json
+├── pipeline.log
+├── input/
+│   └── podcast_episode.mp4
+├── audio/
+│   └── audio.wav
+├── transcript/
+│   ├── transcript.json
+│   └── transcript.txt
+├── frames/
+│   ├── index.json
+│   └── frame_00000*.jpg
+├── analysis/
+│   ├── scenes.json
+│   ├── visual_analysis.json
+│   ├── edit_report.json
+│   ├── caption_report.json
+│   └── metadata_report.json
+├── candidates/
+│   ├── candidates.json
+│   └── candidates.md
+├── selected/
+│   └── selected_clips.json
+├── raw_clips/
+│   ├── funny/
+│   │   └── funny_001.mp4
+│   ├── storytelling/
+│   │   └── storytelling_002.mp4
+│   └── surprising/
+│       └── surprising_003.mp4
+├── edited_clips/
+│   ├── funny/
+│   │   └── funny_001.mp4
+│   ├── storytelling/
+│   │   └── storytelling_002.mp4
+│   └── surprising/
+│       └── surprising_003.mp4
+├── captions/
+│   ├── funny_001.srt
+│   ├── funny_001.ass
+│   ├── storytelling_002.srt
+│   └── storytelling_002.ass
+├── edited_clips_with_captions/
+│   ├── funny/
+│   │   └── funny_001.mp4
+│   ├── storytelling/
+│   │   └── storytelling_002.mp4
+│   └── surprising/
+│       └── surprising_003.mp4
+├── thumbnails/
+│   ├── funny_001.jpg
+│   ├── storytelling_002.jpg
+│   └── surprising_003.jpg
+├── metadata/
+│   ├── funny_001.json
+│   ├── storytelling_002.json
+│   └── surprising_003.json
+├── qa/
+│   ├── clip_qa_report.json
+│   └── final_report.json
+└── final/
+    ├── funny/
+    │   ├── funny_001.mp4
+    │   ├── funny_001.jpg
+    │   └── funny_001.json
+    ├── storytelling/
+    │   ├── storytelling_002.mp4
+    │   ├── storytelling_002.jpg
+    │   └── storytelling_002.json
+    └── surprising/
+        ├── surprising_003.mp4
+        ├── surprising_003.jpg
+        └── surprising_003.json
+```
+
+
 
 
 

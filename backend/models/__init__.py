@@ -4,7 +4,16 @@ from backend.models.caption import CaptionChunk, CaptionWord, ClipCaptionResult,
 from backend.models.clip import ClipSpecification, SelectedClipsReport
 from backend.models.editing import CropWindow, EditedClipResult, ProjectEditReport
 from backend.models.metadata import ClipSocialMetadata, PlatformMetadata, ProjectMetadataReport
-from backend.models.qa import ClipQAChecks, ClipQAResult, ProjectQAReport
+from backend.models.qa import (
+    ClipQAChecks,
+    ClipQAResult,
+    FinalClipQAResult,
+    FinalProjectQAReport,
+    MultimodalQAChecks,
+    ProjectQAReport,
+    RepairAction,
+    RepairRecommendation,
+)
 from backend.models.transcript import TranscriptResult, TranscriptSegment, WordTimestamp
 from backend.models.video import ProjectWorkspace, VideoMetadata
 from backend.models.vision import (
@@ -36,6 +45,11 @@ __all__ = [
     "ClipQAChecks",
     "ClipQAResult",
     "ProjectQAReport",
+    "MultimodalQAChecks",
+    "RepairAction",
+    "RepairRecommendation",
+    "FinalClipQAResult",
+    "FinalProjectQAReport",
     "CropWindow",
     "EditedClipResult",
     "ProjectEditReport",

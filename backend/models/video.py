@@ -67,6 +67,10 @@ class ProjectWorkspace(BaseModel):
         return self.metadata_dir
 
     @property
+    def final(self) -> Path:
+        return self.final_dir
+
+    @property
     def metadata_file(self) -> Path:
         return self.root / "video_metadata.json"
 
