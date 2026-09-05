@@ -24,6 +24,13 @@ class PipelineSettings(BaseModel):
     whisper_device: str = Field(default="auto", description="Device for Whisper inference: auto, cpu, cuda")
     transcribe_word_timestamps: bool = Field(default=True, description="Enable word-level timestamps")
     
+    # Stage 3: Visual Frame Sampling & Analysis
+    frame_sampling_strategy: str = Field(default="adaptive", description="fixed_interval, scene_change, or adaptive")
+    frame_sample_interval: float = Field(default=2.0, description="Fixed interval in seconds between frame samples")
+    min_sample_interval: float = Field(default=1.0, description="Minimum interval for adaptive sampling")
+    max_sample_interval: float = Field(default=5.0, description="Maximum interval for adaptive sampling")
+    scene_change_threshold: float = Field(default=0.35, description="FFmpeg scene detection threshold (0.0 to 1.0)")
+    
     # Tool binaries
     ffmpeg_bin: str = Field(default="ffmpeg", description="Path or command for ffmpeg")
     ffprobe_bin: str = Field(default="ffprobe", description="Path or command for ffprobe")

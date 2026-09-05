@@ -3,13 +3,14 @@
 import json
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from backend.models.video import ProjectWorkspace, VideoMetadata
 from backend.utils.logger import logger
 
 if TYPE_CHECKING:
     from backend.models.transcript import TranscriptResult
+    from backend.models.vision import SceneBoundary, VisualAnalysisResult
 
 
 class WorkspaceManager:
@@ -95,3 +96,22 @@ class WorkspaceManager:
 
         logger.info(f"Saved transcript artifacts to: {json_path} and {txt_path}")
         return json_path, txt_path
+
+    @staticmethod
+    def save_scenes(scenes: "List[SceneBoundary]", workspace: ProjectWorkspace) -> Path:
+        """Saves analysis/scenes.json inside workspace analysis_dir."""
+        scenes_file = workspace.analysis_dir / "scenes.json"
+        with open(scenes_file, "w", encoding="utf-8") as f:
+            data = [s.model_dump() for s in scenes]
+            json.dump(data, f, indent=4)
+        logger.info(f"Saved scenes artifact to: {scenes_file}")
+        return scenes_file
+
+    @staticmethod
+    def save_visual_analysis(analysis: "VisualAnalysisResult", workspace: ProjectWorkspace) -> Path:
+        """Saves analysis/visual_analysis.json inside workspace analysis_dir."""
+        analysis_file = workspace.analysis_dir / "visual_analysis.json"
+        with open(analysis_file, "w", encoding="utf-8") as f:
+            f.write(analysis.model_dump_json(indent=4))
+        logger.info(f"Saved visual analysis artifact to: {analysis_file}")
+        return analysis_file

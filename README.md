@@ -131,3 +131,71 @@ projects/my_project_001/
 ...
 ```
 
+---
+
+## Current Status: Stage 3 — Visual Frame Sampling + Analysis
+
+### What is Implemented in Stage 3:
+- **100% Free & Local Multimodal Vision Processing**:
+  - No external paid vision API calls. All frame sampling, scene detection, face detection, and image analysis run entirely locally on CPU / GPU.
+- **Intelligent Frame Sampling (`backend/analyzers/frame_sampler.py`)**:
+  - Multiple sampling strategies:
+    1. `fixed_interval`: Samples 1 representative frame every $N$ seconds.
+    2. `scene_change`: Samples frames based on shot cut midpoints.
+    3. `adaptive`: Combines shot boundaries with interval bounds to balance coverage and efficiency.
+  - Extracts clean JPEG frames into `frames/frame_000001.jpg` and produces `frames/index.json`.
+- **Scene / Shot Boundary Detection (`backend/analyzers/scene_detector.py`)**:
+  - Uses FFmpeg's internal scene change filter (`select='gt(scene,THRESHOLD)'`) to identify cut points without heavy re-encoding.
+  - Outputs `analysis/scenes.json` with exact start/end timestamps and shot durations.
+- **Local Visual Content Analysis (`backend/analyzers/visual_analyzer.py`)**:
+  - Computes brightness, contrast, and Laplacian variance sharpness metrics.
+  - Detects faces, shot composition (`close_up`, `medium_shot`, `wide_shot`), and visual activity levels (`low`, `moderate`, `high`).
+  - Outputs `analysis/visual_analysis.json`.
+- **New CLI Commands**:
+  - `detect-scenes`: Detects scene boundaries in a video.
+  - `sample-frames`: Intelligently samples representative video frames.
+  - `process-video`: Executes Stage 1 (Ingestion) + Stage 2 (Audio & Transcription) + Stage 3 (Visual Frame Sampling & Analysis).
+
+---
+
+## Stage 3 CLI Usage Examples
+
+### 1. Detect Scene Boundaries
+```bash
+python main.py detect-scenes --input ./video.mp4 --threshold 0.35
+```
+
+### 2. Sample Representative Frames
+```bash
+python main.py sample-frames --input ./video.mp4 --output ./frames --strategy adaptive --interval 2.0
+```
+
+### 3. Run Full Pipeline (Stages 1, 2, & 3)
+```bash
+python main.py process-video --input ./video.mp4 --output ./projects/my_project_001 --model base --strategy adaptive
+```
+
+Workspace output after Stage 3:
+```text
+projects/my_project_001/
+├── video_metadata.json
+├── pipeline.log
+├── input/
+│   └── video.mp4
+├── audio/
+│   └── audio.wav
+├── transcript/
+│   ├── transcript.json
+│   └── transcript.txt
+├── frames/
+│   ├── index.json
+│   ├── frame_000001.jpg
+│   ├── frame_000002.jpg
+│   └── ...
+├── analysis/
+│   ├── scenes.json
+│   └── visual_analysis.json
+...
+```
+
+
