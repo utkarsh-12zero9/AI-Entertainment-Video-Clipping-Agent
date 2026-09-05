@@ -1,0 +1,8 @@
+2026-09-05 18:33:52 [INFO] [video_agent] Starting ingestion for: D:\OpenCode - Project\sample_demo.mp4
+2026-09-05 18:33:52 [INFO] [video_agent] Inspecting video: D:\OpenCode - Project\sample_demo.mp4
+2026-09-05 18:33:52 [INFO] [video_agent] Video inspected successfully: 1920x1080 @ 30.0fps, duration=6.0s, aspect_ratio=16:9, audio=True
+2026-09-05 18:33:52 [INFO] [video_agent] Copying source video to project input: D:\OpenCode - Project\projects\sample_demo_001\input\sample_demo.mp4
+2026-09-05 18:33:52 [INFO] [video_agent] Saved video metadata to: D:\OpenCode - Project\projects\sample_demo_001\video_metadata.json
+2026-09-05 18:33:52 [INFO] [video_agent] Ingestion completed successfully.
+2026-09-05 18:33:52 [INFO] [video_agent] Project directory ready at: D:\OpenCode - Project\projects\sample_demo_001
+2026-09-05 18:33:52 [INFO] [video_agent] Metadata written to: D:\OpenCode - Project\projects\sample_demo_001\video_metadata.json
