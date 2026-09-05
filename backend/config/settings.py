@@ -36,6 +36,12 @@ class PipelineSettings(BaseModel):
     max_candidate_duration: float = Field(default=45.0, description="Maximum duration for candidate moment in seconds")
     min_candidate_score: float = Field(default=0.50, description="Minimum overall social potential score threshold")
     max_candidate_overlap_iou: float = Field(default=0.50, description="Maximum IoU threshold before merging candidates")
+
+    # Stage 5: Clip Ranking & Boundary Optimization
+    max_clips: int = Field(default=8, description="Maximum number of top clips to select")
+    min_clip_spacing_sec: float = Field(default=15.0, description="Minimum time spacing between different selected clips")
+    target_clip_duration: float = Field(default=25.0, description="Ideal target clip duration in seconds")
+    boundary_audio_padding_sec: float = Field(default=0.35, description="Breathing room/reaction padding at clip end")
     
     # Tool binaries
     ffmpeg_bin: str = Field(default="ffmpeg", description="Path or command for ffmpeg")

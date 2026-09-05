@@ -10,6 +10,7 @@ from backend.utils.logger import logger
 
 if TYPE_CHECKING:
     from backend.models.candidate import CandidateReport
+    from backend.models.clip import SelectedClipsReport
     from backend.models.transcript import TranscriptResult
     from backend.models.vision import SceneBoundary, VisualAnalysisResult
 
@@ -135,3 +136,15 @@ class WorkspaceManager:
 
         logger.info(f"Saved candidate moments to: {json_path} and {md_path}")
         return json_path, md_path
+
+    @staticmethod
+    def save_selected_clips(
+        report: "SelectedClipsReport",
+        workspace: ProjectWorkspace
+    ) -> Path:
+        """Saves selected/selected_clips.json inside workspace."""
+        selected_file = workspace.selected_dir / "selected_clips.json"
+        with open(selected_file, "w", encoding="utf-8") as f:
+            f.write(report.model_dump_json(indent=4))
+        logger.info(f"Saved selected clips specification to: {selected_file}")
+        return selected_file

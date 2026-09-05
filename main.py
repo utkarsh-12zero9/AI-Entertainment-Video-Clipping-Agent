@@ -12,9 +12,12 @@ from backend.analyzers.visual_analyzer import VisualAnalyzer
 from backend.audio.extractor import AudioExtractor
 from backend.clip_detection.detector import EntertainmentMomentDetector
 from backend.config.settings import PipelineSettings
+from backend.models.candidate import CandidateReport
+from backend.models.clip import SelectedClipsReport
 from backend.models.transcript import TranscriptResult
 from backend.models.vision import VisualAnalysisResult
 from backend.pipeline.workspace import WorkspaceManager
+from backend.scoring.ranker import ClipRanker
 from backend.transcription.whisper_local import LocalWhisperTranscriber
 from backend.utils.errors import VideoPipelineError
 from backend.utils.logger import logger, setup_logger
@@ -237,8 +240,57 @@ def handle_detect_moments(args: argparse.Namespace) -> int:
         return 2
 
 
+def handle_rank_clips(args: argparse.Namespace) -> int:
+    """Ranks candidates, optimizes boundaries, enforces diversity, and outputs selected_clips.json."""
+    settings = PipelineSettings(
+        max_clips=args.max_clips,
+        min_clip_spacing_sec=args.min_spacing
+    )
+    ranker = ClipRanker(settings=settings)
+
+    try:
+        cand_file = Path(args.candidates).resolve()
+        cand_data = json.loads(cand_file.read_text(encoding="utf-8"))
+        candidate_report = CandidateReport.model_validate(cand_data)
+
+        transcript_file = Path(args.transcript).resolve()
+        transcript_data = json.loads(transcript_file.read_text(encoding="utf-8"))
+        transcript = TranscriptResult.model_validate(transcript_data)
+
+        selected_report = ranker.rank_and_select_clips(
+            report=candidate_report,
+            transcript=transcript,
+            video_duration=transcript.duration,
+            max_clips=args.max_clips
+        )
+
+        if args.output:
+            out_file = Path(args.output).resolve()
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            out_file.write_text(selected_report.model_dump_json(indent=4), encoding="utf-8")
+            print(f"Selected clips saved to: {out_file}")
+        else:
+            print("\n" + "=" * 65)
+            print("SELECTED CLIPS SPECIFICATION (RANKED & BOUNDARY-OPTIMIZED)")
+            print("=" * 65)
+            for c in selected_report.clips:
+                print(f"[{c.clip_id}] {c.start_time:.1f}s - {c.end_time:.1f}s ({c.duration:.1f}s) | Score: {c.score:.2f} | Category: #{c.category}")
+                print(f"  Hook:   \"{c.hook}\"")
+                print(f"  Payoff: \"{c.payoff}\"")
+                print("-" * 65)
+            print("=" * 65 + "\n")
+
+        return 0
+    except VideoPipelineError as e:
+        logger.error(f"Clip ranking failed: {e}")
+        return 1
+    except Exception as e:
+        logger.exception(f"Unexpected error ranking clips: {e}")
+        return 2
+
+
 def handle_process_video(args: argparse.Namespace) -> int:
-    """Executes full multi-stage pipeline (Stage 1 Ingestion + Stage 2 Audio/Transcript + Stage 3 Visuals + Stage 4 Moments)."""
+    """Executes full multi-stage pipeline (Stage 1 to Stage 5)."""
     video_path = Path(args.input).resolve()
     output_path = Path(args.output).resolve()
 
@@ -251,7 +303,9 @@ def handle_process_video(args: argparse.Namespace) -> int:
         frame_sample_interval=args.interval,
         min_candidate_duration=args.min_candidate_duration,
         max_candidate_duration=args.max_candidate_duration,
-        min_candidate_score=args.min_candidate_score
+        min_candidate_score=args.min_candidate_score,
+        max_clips=args.max_clips,
+        min_clip_spacing_sec=args.min_spacing
     )
 
     # Initialize workspace
@@ -312,11 +366,21 @@ def handle_process_video(args: argparse.Namespace) -> int:
         md_summary = EntertainmentMomentDetector.generate_markdown_summary(candidate_report)
         cand_json, cand_md = WorkspaceManager.save_candidates(candidate_report, md_summary, workspace)
 
-        logger.info("Stage 1, 2, 3, and 4 pipeline completed successfully.")
+        # --- Stage 5: Candidate Ranking & Boundary Optimization ---
+        ranker = ClipRanker(settings=settings)
+        selected_report = ranker.rank_and_select_clips(
+            report=candidate_report,
+            transcript=transcript,
+            video_duration=metadata.duration,
+            max_clips=settings.max_clips
+        )
+        selected_file = WorkspaceManager.save_selected_clips(selected_report, workspace)
 
-        print("\n" + "=" * 60)
-        print("PIPELINE EXECUTION SUCCESSFUL (STAGES 1, 2, 3 & 4)")
-        print("=" * 60)
+        logger.info("Stage 1 through 5 pipeline completed successfully.")
+
+        print("\n" + "=" * 65)
+        print("PIPELINE EXECUTION SUCCESSFUL (STAGES 1, 2, 3, 4 & 5)")
+        print("=" * 65)
         print(f"Project Workspace:    {workspace.root}")
         print(f"Metadata File:        {meta_file}")
         print(f"Audio File:           {audio_file}")
@@ -325,11 +389,12 @@ def handle_process_video(args: argparse.Namespace) -> int:
         print(f"Frames Sampled:       {frame_index.total_frames} (in {workspace.frames_dir})")
         print(f"Visual Analysis JSON: {visual_analysis_file}")
         print(f"Candidate JSON:       {cand_json}")
-        print(f"Candidate MD:         {cand_md}")
+        print(f"Selected Clips JSON:  {selected_file}")
         print(f"Duration:             {metadata.duration}s")
         print(f"Resolution:           {metadata.width}x{metadata.height} ({metadata.aspect_ratio})")
         print(f"Candidate Moments:    {candidate_report.total_candidates}")
-        print("=" * 60 + "\n")
+        print(f"Final Selected Clips: {selected_report.total_selected}")
+        print("=" * 65 + "\n")
         return 0
     except VideoPipelineError as e:
         logger.error(f"Pipeline failed: {e}")
@@ -407,10 +472,21 @@ def build_parser() -> argparse.ArgumentParser:
     moments_parser.add_argument("--max-duration", type=float, default=45.0, help="Maximum candidate duration in seconds")
     moments_parser.add_argument("--min-score", type=float, default=0.50, help="Minimum social potential score")
 
+    # rank-clips
+    rank_parser = subparsers.add_parser(
+        "rank-clips",
+        help="Rank candidates, optimize boundaries, and select top clip specifications"
+    )
+    rank_parser.add_argument("--candidates", required=True, help="Path to candidates.json")
+    rank_parser.add_argument("--transcript", required=True, help="Path to transcript.json")
+    rank_parser.add_argument("--output", "-o", default=None, help="Path to save selected_clips.json")
+    rank_parser.add_argument("--max-clips", type=int, default=8, help="Maximum number of clips to select (default: 8)")
+    rank_parser.add_argument("--min-spacing", type=float, default=15.0, help="Minimum spacing in seconds between selected clips")
+
     # process-video
     process_parser = subparsers.add_parser(
         "process-video",
-        help="Execute pipeline (Ingestion + Audio/Transcript + Visuals + Moments)"
+        help="Execute pipeline (Ingestion + Audio/Transcript + Visuals + Moments + Ranking)"
     )
     process_parser.add_argument("--input", "-i", required=True, help="Path to source video file")
     process_parser.add_argument("--output", "-o", required=True, help="Target project directory path")
@@ -423,6 +499,8 @@ def build_parser() -> argparse.ArgumentParser:
     process_parser.add_argument("--min-candidate-duration", type=float, default=15.0, help="Minimum candidate duration in seconds")
     process_parser.add_argument("--max-candidate-duration", type=float, default=45.0, help="Maximum candidate duration in seconds")
     process_parser.add_argument("--min-candidate-score", type=float, default=0.50, help="Minimum candidate social potential score")
+    process_parser.add_argument("--max-clips", type=int, default=8, help="Maximum number of final clips to select")
+    process_parser.add_argument("--min-spacing", type=float, default=15.0, help="Minimum spacing in seconds between selected clips")
 
     return parser
 
@@ -443,6 +521,8 @@ def main() -> None:
         exit_code = handle_sample_frames(args)
     elif args.command == "detect-moments":
         exit_code = handle_detect_moments(args)
+    elif args.command == "rank-clips":
+        exit_code = handle_rank_clips(args)
     elif args.command == "process-video":
         exit_code = handle_process_video(args)
     else:

@@ -275,5 +275,86 @@ projects/podcast_001/
 ...
 ```
 
+---
+
+## Current Status: Stage 5 — Candidate Ranking + Boundary Optimization
+
+### What is Implemented in Stage 5:
+- **Linguistic Boundary Optimization (`backend/clip_detection/boundary_optimizer.py`)**:
+  - Eliminates awkward cutoffs, mid-word splices, and mid-sentence breaks.
+  - Snaps clip start times to natural speech segment beginnings.
+  - **Dangling Pronoun Resolution**: Checks whether the clip begins with unexplained pronouns (`he`, `she`, `it`, `they`, `that`, `this`); if so, automatically includes preceding context without exceeding maximum duration.
+  - **Payoff & Reaction Preservation**: Snaps clip end times to sentence termination + `0.35s` natural audio breathing room for laughter and reaction.
+  - Enforces the target 20–30s short-form duration sweet spot (default ~25s).
+- **Weighted Multimodal Ranking (`backend/scoring/ranker.py`)**:
+  - Ranks candidates across 8 weighted criteria:
+    - Hook: 20%
+    - Entertainment / Humor: 20%
+    - Standalone Context: 15%
+    - Payoff: 15%
+    - Emotional Impact: 10%
+    - Visual Interest: 10%
+    - Audio Quality: 5%
+    - Uniqueness: 5%
+- **Temporal Diversity Enforcement**:
+  - Prevents clustering of clips from the same segment of the video using configurable temporal spacing (`min_clip_spacing_sec`).
+- **Category-Prefixed Clip Identification**:
+  - Automatically generates standard category-named IDs: `funny_001`, `emotional_001`, `surprising_001`, etc.
+- **Output Artifact**:
+  - `selected/selected_clips.json`: Complete, production-ready clip specifications ready for video rendering.
+- **CLI Commands**:
+  - `rank-clips`: Ranks candidates from `candidates.json` and generates `selected_clips.json`.
+  - `process-video`: Executes Stages 1 through 5 seamlessly.
+
+---
+
+## Stage 5 CLI Usage Examples
+
+### 1. Rank & Optimize Clips from Existing Project
+```bash
+python main.py rank-clips \
+  --candidates ./projects/podcast_001/candidates/candidates.json \
+  --transcript ./projects/podcast_001/transcript/transcript.json \
+  --output ./projects/podcast_001/selected/selected_clips.json \
+  --max-clips 8 \
+  --min-spacing 15.0
+```
+
+### 2. Run Full Pipeline (Stages 1 through 5)
+```bash
+python main.py process-video \
+  --input ./podcast_episode.mp4 \
+  --output ./projects/podcast_001 \
+  --model base \
+  --max-clips 8
+```
+
+Project workspace structure after Stage 5:
+```text
+projects/podcast_001/
+├── video_metadata.json
+├── pipeline.log
+├── input/
+│   └── podcast_episode.mp4
+├── audio/
+│   └── audio.wav
+├── transcript/
+│   ├── transcript.json
+│   └── transcript.txt
+├── frames/
+│   ├── index.json
+│   └── frame_00000*.jpg
+├── analysis/
+│   ├── scenes.json
+│   └── visual_analysis.json
+├── candidates/
+│   ├── candidates.json
+│   └── candidates.md
+├── selected/
+│   └── selected_clips.json
+...
+```
+
+
 
 
