@@ -17,10 +17,12 @@ from backend.models.clip import SelectedClipsReport
 from backend.models.transcript import TranscriptResult
 from backend.models.vision import VisualAnalysisResult
 from backend.pipeline.workspace import WorkspaceManager
+from backend.qa.clip_validator import ClipValidator
 from backend.scoring.ranker import ClipRanker
 from backend.transcription.whisper_local import LocalWhisperTranscriber
 from backend.utils.errors import VideoPipelineError
 from backend.utils.logger import logger, setup_logger
+from backend.video.clip_extractor import RawClipExtractor
 from backend.video.inspector import VideoInspector
 
 
@@ -289,8 +291,89 @@ def handle_rank_clips(args: argparse.Namespace) -> int:
         return 2
 
 
+def handle_extract_clips(args: argparse.Namespace) -> int:
+    """Extracts raw candidate clips from video according to selected_clips.json."""
+    video_path = Path(args.input).resolve()
+    selected_file = Path(args.selected).resolve()
+    output_dir = Path(args.output).resolve()
+
+    settings = PipelineSettings(
+        clip_crf=args.crf,
+        clip_preset=args.preset,
+        clip_audio_bitrate=args.audio_bitrate
+    )
+    extractor = RawClipExtractor(settings=settings)
+
+    try:
+        selected_data = json.loads(selected_file.read_text(encoding="utf-8"))
+        selected_report = SelectedClipsReport.model_validate(selected_data)
+
+        # Create temporary workspace mock pointing to output_dir
+        workspace = WorkspaceManager.create_workspace(output_dir)
+        extracted = extractor.extract_all_clips(video_path, selected_report, workspace)
+
+        print("\n" + "=" * 65)
+        print(f"RAW CLIP EXTRACTION SUCCESSFUL ({len(extracted)} CLIPS)")
+        print("=" * 65)
+        for p in extracted:
+            print(f"  Extracted: {p.relative_to(workspace.root)} ({p.stat().st_size / 1024 / 1024:.2f} MB)")
+        print("=" * 65 + "\n")
+        return 0
+    except VideoPipelineError as e:
+        logger.error(f"Clip extraction failed: {e}")
+        return 1
+    except Exception as e:
+        logger.exception(f"Unexpected error extracting clips: {e}")
+        return 2
+
+
+def handle_qa_clips(args: argparse.Namespace) -> int:
+    """Validates extracted raw clips against specifications and audio/video QA criteria."""
+    selected_file = Path(args.selected).resolve()
+    project_dir = Path(args.project_dir).resolve()
+
+    settings = PipelineSettings(
+        qa_duration_tolerance_sec=args.duration_tolerance,
+        qa_max_allowed_silence_sec=args.max_silence
+    )
+    validator = ClipValidator(settings=settings)
+
+    try:
+        selected_data = json.loads(selected_file.read_text(encoding="utf-8"))
+        selected_report = SelectedClipsReport.model_validate(selected_data)
+        workspace = WorkspaceManager.create_workspace(project_dir)
+
+        qa_report = validator.validate_all_clips(selected_report, workspace)
+        qa_file = WorkspaceManager.save_qa_report(qa_report, workspace)
+
+        print("\n" + "=" * 65)
+        print("AUTOMATED CLIP QUALITY ASSURANCE (QA) REPORT")
+        print("=" * 65)
+        print(f"Total Clips Tested:  {qa_report.total_clips}")
+        print(f"Clips Passed:        {qa_report.passed_clips}")
+        print(f"Clips Failed:        {qa_report.failed_clips}")
+        print(f"QA Status:           {'PASSED' if qa_report.all_passed else 'FAILED'}")
+        print(f"QA Report File:      {qa_file}")
+        print("-" * 65)
+        for r in qa_report.clip_results:
+            status = "PASS" if r.passed else "FAIL"
+            print(f"[{status}] Clip {r.clip_id}: {r.actual_duration:.2f}s (exp: {r.expected_duration:.2f}s, diff: {r.duration_diff:.2f}s)")
+            if r.issues:
+                for issue in r.issues:
+                    print(f"       ! {issue}")
+        print("=" * 65 + "\n")
+
+        return 0 if qa_report.all_passed else 1
+    except VideoPipelineError as e:
+        logger.error(f"QA verification failed: {e}")
+        return 1
+    except Exception as e:
+        logger.exception(f"Unexpected error running QA: {e}")
+        return 2
+
+
 def handle_process_video(args: argparse.Namespace) -> int:
-    """Executes full multi-stage pipeline (Stage 1 to Stage 5)."""
+    """Executes full multi-stage pipeline (Stage 1 to Stage 6)."""
     video_path = Path(args.input).resolve()
     output_path = Path(args.output).resolve()
 
@@ -376,10 +459,18 @@ def handle_process_video(args: argparse.Namespace) -> int:
         )
         selected_file = WorkspaceManager.save_selected_clips(selected_report, workspace)
 
-        logger.info("Stage 1 through 5 pipeline completed successfully.")
+        # --- Stage 6: Raw Clip Extraction & Automated QA Validation ---
+        clip_extractor = RawClipExtractor(settings=settings)
+        extracted_clips = clip_extractor.extract_all_clips(copied_video, selected_report, workspace)
+
+        qa_validator = ClipValidator(settings=settings)
+        qa_report = qa_validator.validate_all_clips(selected_report, workspace)
+        qa_file = WorkspaceManager.save_qa_report(qa_report, workspace)
+
+        logger.info("Stage 1 through 6 pipeline completed successfully.")
 
         print("\n" + "=" * 65)
-        print("PIPELINE EXECUTION SUCCESSFUL (STAGES 1, 2, 3, 4 & 5)")
+        print("PIPELINE EXECUTION SUCCESSFUL (STAGES 1, 2, 3, 4, 5 & 6)")
         print("=" * 65)
         print(f"Project Workspace:    {workspace.root}")
         print(f"Metadata File:        {meta_file}")
@@ -390,6 +481,9 @@ def handle_process_video(args: argparse.Namespace) -> int:
         print(f"Visual Analysis JSON: {visual_analysis_file}")
         print(f"Candidate JSON:       {cand_json}")
         print(f"Selected Clips JSON:  {selected_file}")
+        print(f"Raw Clips Extracted:  {len(extracted_clips)} (in {workspace.raw_clips})")
+        print(f"QA Validation Report: {qa_file}")
+        print(f"QA Overall Status:    {'PASSED' if qa_report.all_passed else 'WARNING / ISSUES DETECTED'}")
         print(f"Duration:             {metadata.duration}s")
         print(f"Resolution:           {metadata.width}x{metadata.height} ({metadata.aspect_ratio})")
         print(f"Candidate Moments:    {candidate_report.total_candidates}")
@@ -483,10 +577,32 @@ def build_parser() -> argparse.ArgumentParser:
     rank_parser.add_argument("--max-clips", type=int, default=8, help="Maximum number of clips to select (default: 8)")
     rank_parser.add_argument("--min-spacing", type=float, default=15.0, help="Minimum spacing in seconds between selected clips")
 
+    # extract-clips
+    extract_clips_parser = subparsers.add_parser(
+        "extract-clips",
+        help="Extract raw candidate clips from video according to selected_clips.json"
+    )
+    extract_clips_parser.add_argument("--input", "-i", required=True, help="Path to source video file")
+    extract_clips_parser.add_argument("--selected", "-s", required=True, help="Path to selected_clips.json")
+    extract_clips_parser.add_argument("--output", "-o", required=True, help="Target project/output directory")
+    extract_clips_parser.add_argument("--crf", type=int, default=18, help="Constant Rate Factor for video quality (default: 18)")
+    extract_clips_parser.add_argument("--preset", default="fast", choices=["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow"], help="FFmpeg encoding preset")
+    extract_clips_parser.add_argument("--audio-bitrate", default="192k", help="Audio bitrate (default: 192k)")
+
+    # qa-clips
+    qa_parser = subparsers.add_parser(
+        "qa-clips",
+        help="Run automated quality assurance validation on extracted raw clips"
+    )
+    qa_parser.add_argument("--project-dir", "-p", required=True, help="Path to project directory containing raw_clips/")
+    qa_parser.add_argument("--selected", "-s", required=True, help="Path to selected_clips.json")
+    qa_parser.add_argument("--duration-tolerance", type=float, default=0.75, help="Maximum allowable duration discrepancy in seconds")
+    qa_parser.add_argument("--max-silence", type=float, default=4.0, help="Maximum allowable continuous silence in seconds")
+
     # process-video
     process_parser = subparsers.add_parser(
         "process-video",
-        help="Execute pipeline (Ingestion + Audio/Transcript + Visuals + Moments + Ranking)"
+        help="Execute full pipeline (Stages 1 to 6: Ingestion, Audio/Transcript, Visuals, Moments, Ranking, Extraction & QA)"
     )
     process_parser.add_argument("--input", "-i", required=True, help="Path to source video file")
     process_parser.add_argument("--output", "-o", required=True, help="Target project directory path")
@@ -523,6 +639,10 @@ def main() -> None:
         exit_code = handle_detect_moments(args)
     elif args.command == "rank-clips":
         exit_code = handle_rank_clips(args)
+    elif args.command == "extract-clips":
+        exit_code = handle_extract_clips(args)
+    elif args.command == "qa-clips":
+        exit_code = handle_qa_clips(args)
     elif args.command == "process-video":
         exit_code = handle_process_video(args)
     else:

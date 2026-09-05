@@ -43,9 +43,19 @@ class ProjectWorkspace(BaseModel):
     final_dir: Path
     
     @property
+    def project_id(self) -> str:
+        return self.root.name
+
+    @property
+    def raw_clips(self) -> Path:
+        return self.raw_clips_dir
+
+
+    @property
     def metadata_file(self) -> Path:
         return self.root / "video_metadata.json"
 
     @property
     def log_file(self) -> Path:
         return self.root / "pipeline.log"
+

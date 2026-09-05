@@ -42,6 +42,13 @@ class PipelineSettings(BaseModel):
     min_clip_spacing_sec: float = Field(default=15.0, description="Minimum time spacing between different selected clips")
     target_clip_duration: float = Field(default=25.0, description="Ideal target clip duration in seconds")
     boundary_audio_padding_sec: float = Field(default=0.35, description="Breathing room/reaction padding at clip end")
+
+    # Stage 6: Raw Clip Extraction & QA
+    clip_crf: int = Field(default=18, description="Constant Rate Factor for high-quality x264 extraction")
+    clip_preset: str = Field(default="fast", description="FFmpeg x264 preset")
+    clip_audio_bitrate: str = Field(default="192k", description="Audio bitrate for clip extraction")
+    qa_duration_tolerance_sec: float = Field(default=0.75, description="Allowed duration deviation in seconds")
+    qa_max_allowed_silence_sec: float = Field(default=4.0, description="Max acceptable continuous silence")
     
     # Tool binaries
     ffmpeg_bin: str = Field(default="ffmpeg", description="Path or command for ffmpeg")
@@ -50,3 +57,9 @@ class PipelineSettings(BaseModel):
 
 # Default global settings instance
 default_settings = PipelineSettings()
+
+
+def get_settings() -> PipelineSettings:
+    """Returns the default pipeline settings instance."""
+    return default_settings
+

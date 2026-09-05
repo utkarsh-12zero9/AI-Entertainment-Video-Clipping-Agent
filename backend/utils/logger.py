@@ -43,3 +43,9 @@ def setup_logger(
 
 # Default application logger instance
 logger = setup_logger()
+
+
+def get_logger(name: str = "video_agent") -> logging.Logger:
+    """Returns a logger instance with the specified name."""
+    return logging.getLogger(name)
+

@@ -352,8 +352,96 @@ projects/podcast_001/
 │   └── candidates.md
 ├── selected/
 │   └── selected_clips.json
-...
 ```
+
+---
+
+## Current Status: Stage 6 — Raw Clip Extraction + Automated Quality Assurance (QA)
+
+### What is Implemented in Stage 6:
+- **Keyframe-Accurate Raw Clip Extraction (`backend/video/clip_extractor.py`)**:
+  - Uses FFmpeg input seeking with libx264 re-encoding (`-ss <start> -i <source> -t <duration> -c:v libx264 -crf 18 -preset fast -c:a aac -b:a 192k`).
+  - Preserves audio/video synchronization with `-avoid_negative_ts make_zero`.
+  - Organizes output into category-prefixed subdirectories (`raw_clips/<category>/<output_filename>`).
+- **Automated Multi-Point Quality Assurance (`backend/qa/clip_validator.py`)**:
+  - **Duration Tolerance Verification**: Verifies clip duration matches specification within $\pm 0.75$s tolerance.
+  - **Stream Integrity**: Confirms presence and non-corruption of both video and audio streams.
+  - **Audio/Video Stream Synchronization**: Checks stream start offsets and drift between audio and video packets.
+  - **Excessive Silence Detection**: Evaluates FFmpeg `silencedetect` filter to catch dead audio gaps exceeding 4.0s.
+  - **Black Frame Detection**: Evaluates FFmpeg `blackdetect` filter to catch black screen anomalies.
+- **QA Artifacts & Logging**:
+  - Automatically exports comprehensive per-clip checks and overall pass/fail status to `qa/clip_qa_report.json`.
+- **CLI Commands**:
+  - `extract-clips`: Extracts raw clips from source video according to `selected_clips.json`.
+  - `qa-clips`: Runs automated QA on extracted raw clips.
+  - `process-video`: Executes full multi-stage pipeline across all Stages 1 through 6 seamlessly.
+
+---
+
+## Stage 6 CLI Usage Examples
+
+### 1. Extract Raw Clips from Existing Project
+```bash
+python main.py extract-clips \
+  --input ./podcast_episode.mp4 \
+  --selected ./projects/podcast_001/selected/selected_clips.json \
+  --output ./projects/podcast_001 \
+  --crf 18 \
+  --preset fast
+```
+
+### 2. Run Automated QA Validation on Extracted Clips
+```bash
+python main.py qa-clips \
+  --project-dir ./projects/podcast_001 \
+  --selected ./projects/podcast_001/selected/selected_clips.json \
+  --duration-tolerance 0.75 \
+  --max-silence 4.0
+```
+
+### 3. Run Full Pipeline (Stages 1 through 6)
+```bash
+python main.py process-video \
+  --input ./podcast_episode.mp4 \
+  --output ./projects/podcast_001 \
+  --model base \
+  --max-clips 8
+```
+
+Project workspace structure after Stage 6:
+```text
+projects/podcast_001/
+├── video_metadata.json
+├── pipeline.log
+├── input/
+│   └── podcast_episode.mp4
+├── audio/
+│   └── audio.wav
+├── transcript/
+│   ├── transcript.json
+│   └── transcript.txt
+├── frames/
+│   ├── index.json
+│   └── frame_00000*.jpg
+├── analysis/
+│   ├── scenes.json
+│   └── visual_analysis.json
+├── candidates/
+│   ├── candidates.json
+│   └── candidates.md
+├── selected/
+│   └── selected_clips.json
+├── raw_clips/
+│   ├── funny/
+│   │   └── funny_001.mp4
+│   ├── storytelling/
+│   │   └── storytelling_002.mp4
+│   └── surprising/
+│       └── surprising_003.mp4
+└── qa/
+    └── clip_qa_report.json
+```
+
 
 
 
